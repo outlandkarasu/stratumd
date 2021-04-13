@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/stratumd
+stratumd.so
+stratumd.dylib
+stratumd.dll
+stratumd.a
+stratumd.lib
+stratumd-test-*
+*.exe
+*.o
+*.obj
+*.lst

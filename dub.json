@@ -1,0 +1,8 @@
+{
+	"authors": [
+		"outland.karasu@gmail.com"
+	],
+	"description": "A Stratum v1 D client.",
+	"license": "BSL-1.0",
+	"name": "stratumd"
+}
