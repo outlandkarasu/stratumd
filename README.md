@@ -1,0 +1,2 @@
+# stratumd
+Stratum client
