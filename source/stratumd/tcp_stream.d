@@ -6,7 +6,7 @@ module stratumd.tcp_stream;
 import core.time : msecs;
 import core.sync.mutex : Mutex;
 import core.thread : Thread;
-import std.algorithm : copy;
+import std.algorithm : copy, move;
 import std.array : Appender, appender;
 import std.concurrency : Generator, yield, Tid;
 import std.exception : basicExceptionCtors;
@@ -37,13 +37,19 @@ private:
 
     struct Payload
     {
+        @disable this(this);
+
         TCPStreamThread thread_;
 
         ~this() nothrow
         {
             try
             {
-                thread_.close();
+                if (thread_)
+                {
+                    thread_.close();
+                    thread_ = null;
+                }
             }
             catch (Throwable e)
             {
@@ -55,7 +61,7 @@ private:
     this(TCPStreamThread thread)
         in (thread)
     {
-        this.payload_ = refCounted(Payload(thread));
+        this.payload_ = Payload(thread);
     }
 
     RefCounted!Payload payload_;
@@ -84,7 +90,9 @@ Returns:
 TCPStream openTCPStream(scope const(char)[] hostname, ushort port, OnTCPReceive onReceive, OnTCPError onError)
 {
     auto address = new InternetAddress(hostname, port);
-    return TCPStream(new TCPStreamThread(address, onReceive, onError));
+    auto thread = new TCPStreamThread(address, onReceive, onError);
+    thread.start();
+    return TCPStream(thread);
 }
 
 private:
