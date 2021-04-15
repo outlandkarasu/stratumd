@@ -3,6 +3,7 @@ TCP socket stream module.
 */
 module stratumd.tcp_stream;
 
+import std.stdio : writeln;
 import core.time : msecs;
 import core.sync.mutex : Mutex;
 import core.thread : Thread;
@@ -161,7 +162,7 @@ final class TCPStreamThread
         scope sendSet = new SocketSet(1);
         scope errorSet = new SocketSet(1);
         size_t receivedSize = 0;
-        while(!isClose_ || sendBuffer_[].length > 0)
+        for (;;)
         {
             receiveSet.reset();
             receiveSet.add(socket_);
@@ -206,15 +207,10 @@ final class TCPStreamThread
             {
                 onError_(socket_.getErrorText());
             }
-        }
 
-        socket_.shutdown(SocketShutdown.SEND);
-        while(receivedSize > 0)
-        {
-            receivedSize = socket_.receive(receiveBuffer);
-            if (receivedSize > 0)
+            if (isClose_)
             {
-                onReceive_(receiveBuffer[0 .. receivedSize]);
+                socket_.shutdown(SocketShutdown.SEND);
             }
         }
     }

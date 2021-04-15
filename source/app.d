@@ -6,7 +6,7 @@ import core.time : seconds;
 
 void main()
 {
-    scope stream = openTCPStream("www.google.com", 443, (data) => writefln("%s", data), (error) => writefln("error: %s", error));
-    stream.send("test");
+    scope stream = openTCPStream("sha256.usa-west.nicehash.com", 3334, (data) => writefln("%s", data), (error) => writefln("error: %s", error));
+    stream.send("{\"id\": 1, \"method\": \"mining.subscribe\", \"params\": []}\n");
     Thread.sleep(5.seconds);
 }
