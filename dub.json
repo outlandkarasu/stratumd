@@ -2,6 +2,9 @@
 	"authors": [
 		"outland.karasu@gmail.com"
 	],
+	"dependencies": {
+		"asdf": "~>0.7.5"
+	},
 	"description": "A Stratum v1 D client.",
 	"license": "BSL-1.0",
 	"name": "stratumd"
