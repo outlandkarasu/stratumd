@@ -97,6 +97,8 @@ void openTCPConnection(scope const(char)[] hostname, ushort port, scope TCPHandl
     scope errorSet = new SocketSet(1);
     for (;;)
     {
+        handler.onIdle(operations);
+
         receiveSet.reset();
         receiveSet.add(socket);
 
