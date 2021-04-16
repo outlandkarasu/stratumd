@@ -1,7 +1,6 @@
 module stratumd.methods;
 
 import std.json : JSONValue, toJSON;
-import std.typecons : Nullable, nullable;
 
 /**
 Stratum authorize method.
@@ -10,6 +9,7 @@ struct StratumAuthorize
 {
     enum method = "mining.authorize";
 
+    int id;
     string username;
     string password;
 
@@ -18,20 +18,15 @@ struct StratumAuthorize
         int id;
         bool result;
 
-        static Nullable!Result parse()(auto ref const(JSONValue) json)
+        static Result parse()(auto ref const(JSONValue) json)
         {
-            if (json.getMethod() != method)
-            {
-                return typeof(return).init;
-            }
-
             immutable id = cast(int) json["id"].integer;
             immutable result = json["result"].boolean;
-            return Result(id, result).nullable;
+            return Result(id, result);
         }
     }
 
-    string toJSON(int id) const
+    string toJSON() const
     {
         auto json = createMethodJSON(id, method);
         json["params"] = [username, password];
@@ -42,8 +37,8 @@ struct StratumAuthorize
 ///
 unittest
 {
-    auto authorize = StratumAuthorize("testname", "testword");
-    assert(authorize.toJSON(1) ==
+    auto authorize = StratumAuthorize(1, "testname", "testword");
+    assert(authorize.toJSON ==
         `{"id":1,"method":"mining.authorize",`
         ~ `"params":["testname","testword"]}`);
 }
@@ -53,22 +48,10 @@ unittest
 {
     import std.json : parseJSON;
 
-    auto json = parseJSON(`{"id":1,"method":"mining.authorize","error":null,"result":true}`);
+    auto json = parseJSON(`{"id":1,"error":null,"result":true}`);
     immutable result = StratumAuthorize.Result.parse(json);
-    assert(!result.isNull);
-    assert(result.get.id == 1);
-    assert(result.get.result == true);
-
-    json = parseJSON(`{"id":1,"method":"mining.invalid","error":null,"result":true}`);
-    assert(StratumAuthorize.Result.parse(json).isNull);
-}
-
-/**
-Stratum authorize result.
-*/
-struct StratumAuthorizeResult
-{
-    bool result;
+    assert(result.id == 1);
+    assert(result.result == true);
 }
 
 /**
@@ -76,16 +59,53 @@ Stratum subscribe method.
 */
 struct StratumSubscribe
 {
+    enum method = "mining.subscribe";
+
+    int id;
     string userAgent;
+
+    string toJSON() const
+    {
+        auto json = createMethodJSON(id, method);
+        json["params"] = [userAgent];
+        return json.toJSON();
+    }
+
+    struct Result
+    {
+        int id;
+        string extranonce1;
+        int extranonce2Size;
+
+        static Result parse()(auto ref const(JSONValue) json)
+        {
+            immutable id = cast(int) json["id"].integer;
+            auto result = json["result"].array;
+            return Result(id, result[1].str, cast(int) result[2].integer);
+        }
+    }
 }
 
-/**
-Stratum subscribe result.
-*/
-struct StratumSubscribeResult
+///
+unittest
 {
-    string extranonce1;
-    int extranonce2Size;
+    auto subscribe = StratumSubscribe(1, "test-agent");
+    assert(subscribe.toJSON ==
+        `{"id":1,"method":"mining.subscribe",`
+        ~ `"params":["test-agent"]}`);
+}
+
+///
+unittest
+{
+    import std.json : parseJSON;
+
+    auto json = parseJSON(
+        `{"id":1,"error":null,"result":[[],"nonce1",4]}`);
+    immutable result = StratumSubscribe.Result.parse(json);
+    assert(result.id == 1);
+    assert(result.extranonce1 == "nonce1");
+    assert(result.extranonce2Size == 4);
 }
 
 /**
@@ -162,11 +182,5 @@ JSONValue createMethodJSON(int id, string method)
     auto json = JSONValue(["id": id]);
     json["method"] = method;
     return json;
-}
-
-Nullable!string getMethod()(auto ref const(JSONValue) json)
-{
-    auto method = "method" in json;
-    return method ? method.str.nullable : typeof(return).init;
 }
 

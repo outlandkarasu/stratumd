@@ -15,16 +15,8 @@ import stratumd.tcp_connection :
     TCPSender,
     TCPCloser,
     openTCPConnection;
-
 import stratumd.methods :
-    StratumAuthorize,
-    StratumNotify,
-    StratumSetDifficulty,
-    StratumSetExtranonce,
-    StratumSubscribe,
-    StratumSubscribeResult,
-    StratumSubmit,
-    StratumReconnect;
+    StratumAuthorize;
 
 /**
 Open stratum connection.
@@ -38,12 +30,6 @@ void openStratumConnection(scope const(char)[] hostname, ushort port)
 {
     auto connectionThreadID = concurrency.spawnLinked(
         &startConnection, hostname.idup, port, concurrency.thisTid);
-
-    concurrency.send(connectionThreadID, MethodCallID(1), StratumSubscribe("test"));
-    concurrency.receive((MethodCallID id, StratumSubscribeResult result) {
-        import std.stdio : writeln;
-        writeln(id, result);
-    });
 }
 
 private:
@@ -53,63 +39,6 @@ void startConnection(string hostname, ushort port, concurrency.Tid parent)
     scope handler = new StratumClient(parent);
     openTCPConnection(hostname, port, handler);
 }
-
-enum StratumMethod
-{
-    miningAuthorize,
-    miningSubscribe,
-    miningSubmit,
-    miningNotify,
-    miningSetDifficulty,
-    miningSetExtranonce,
-    clientReconnect,
-}
-
-string methodToString(StratumMethod method) @nogc nothrow pure @safe
-{
-    final switch (method)
-    {
-    case StratumMethod.miningAuthorize:
-        return "mining.authorize";
-    case StratumMethod.miningSubscribe:
-        return "mining.subscribe";
-    case StratumMethod.miningSubmit:
-        return "mining.submit";
-    case StratumMethod.miningNotify:
-        return "mining.notify";
-    case StratumMethod.miningSetDifficulty:
-        return "mining.set_difficulty";
-    case StratumMethod.miningSetExtranonce:
-        return "mining.set_extranonce";
-    case StratumMethod.clientReconnect:
-        return "client.reconnect";
-    }
-}
-
-Nullable!StratumMethod stringToMethod(scope string method)
-{
-    switch (method)
-    {
-    case "mining.authorize":
-        return StratumMethod.miningAuthorize.nullable;
-    case "mining.subscribe":
-        return StratumMethod.miningSubscribe.nullable;
-    case "mining.submit":
-        return StratumMethod.miningSubmit.nullable;
-    case "mining.notify":
-        return StratumMethod.miningNotify.nullable;
-    case "mining.set_difficulty":
-        return StratumMethod.miningSetDifficulty.nullable;
-    case "mining.set_extranonce":
-        return StratumMethod.miningSetExtranonce.nullable;
-    case "client.reconnect":
-        return StratumMethod.clientReconnect.nullable;
-    default:
-        return typeof(return).init;
-    }
-}
-
-alias MethodCallID = Typedef!(int, int.init, "MethodCallID");
 
 final class StratumClient : TCPHandler
 {
@@ -127,14 +56,13 @@ final class StratumClient : TCPHandler
         method = method name.
         args = method arguments;
     */
-    void sendMethod(T...)(int id, StratumMethod method, T args)
+    void sendMethod(T)(auto ref const(T) message)
     {
-        auto call = JSONValue(["id": id]);
-        call["method"] = method.methodToString;
-        infof("send: %s", call);
-        this.sendBuffer_ ~= call.toJSON().representation;
+        infof("send: %s", message);
+        this.sendBuffer_ ~= message.toJSON.representation;
         this.sendBuffer_ ~= '\n';
-        this.callingMethods_[id] = method;
+        this.resultHandlers_[message.id]
+            = (ref const(JSONValue) json) => onResult(T.Result.parse(json));
     }
 
     override void onSendable(scope TCPSender sender)
@@ -142,10 +70,8 @@ final class StratumClient : TCPHandler
         if (sendBuffer_[].length > 0)
         {
             const(void)[] data = sendBuffer_[];
-            infof("send: %s", cast(const(char)[]) sendBuffer_[]);
             sender.send(data);
             sendBuffer_.truncateBuffer(data.length);
-            infof("sent: %s", cast(const(char)[]) sendBuffer_[]);
         }
     }
 
@@ -178,9 +104,7 @@ final class StratumClient : TCPHandler
             {
                 concurrency.receiveTimeout(
                     1.msecs,
-                    &sendAuthorize,
-                    &sendSubscribe,
-                    &sendSubmit);
+                    (StratumAuthorize m) => sendMethod(m));
             }
             catch (concurrency.OwnerTerminated e)
             {
@@ -194,19 +118,20 @@ final class StratumClient : TCPHandler
 private:
     enum JSON_SEPARATOR = '\n';
 
+    alias ResultHandler = void delegate(ref const(JSONValue) json);
+
     Appender!(ubyte[]) sendBuffer_;
     Appender!(ubyte[]) receiveBuffer_;
-    StratumMethod[int] callingMethods_;
+    ResultHandler[int] resultHandlers_;
     concurrency.Tid threadID_;
     bool terminated_;
 
     void parseJSONMessage(scope const(char)[] data)
     {
-        JSONValue json = parseJSON(data);
+        const json = parseJSON(data);
         auto method = "method" in json;
         if (method)
         {
-            onJSONMethod(method.str, json["params"].array);
             return;
         }
 
@@ -214,16 +139,18 @@ private:
         if (result)
         {
             immutable id = cast(int) json["id"].integer;
+            auto handler = id in resultHandlers_;
+            resultHandlers_.remove(id);
+
             if ("error" in json)
             {
                 // handle error.
                 onJSONResultError(id, data);
                 return;
             }
-            else
+            else if(handler)
             {
-                onJSONResult(id, *result);
-                return;
+                (*handler)(json);
             }
         }
 
@@ -231,98 +158,14 @@ private:
         warningf("unrecognized message: %s", data);
     }
 
-    private void onJSONMethod(scope string method, const(JSONValue)[] params)
-    {
-        immutable stratumMethod = method.stringToMethod;
-        if (stratumMethod.isNull)
-        {
-            warningf("unknown method: %s", method);
-            return;
-        }
-
-        switch(stratumMethod.get)
-        {
-        case StratumMethod.miningNotify:
-            receiveNotify(params);
-            break;
-        case StratumMethod.miningSetDifficulty:
-            break;
-        case StratumMethod.miningSetExtranonce:
-            break;
-        case StratumMethod.clientReconnect:
-            break;
-        default:
-            warningf("unexpected method: %s", stratumMethod.get);
-            break;
-        }
-    }
-
     private void onJSONResultError(int id, scope const(char)[] errorResponse)
     {
         errorf("result error[%d]: %s", id, errorResponse);
     }
 
-    private void onJSONResult(int id, JSONValue result)
+    private void onResult(T)(auto ref const(T) result)
     {
-        auto method = id in callingMethods_;
-        if (method)
-        {
-            callingMethods_.remove(id);
-        }
-        else
-        {
-            warningf("unknown message: [%d] %s", id, result);
-        }
-    }
-
-    private void sendAuthorize(MethodCallID id, StratumAuthorize authorize)
-    {
-        sendMethod(cast(int) id, StratumMethod.miningAuthorize, authorize.username, authorize.password);
-    }
-
-    private void sendSubscribe(MethodCallID id, StratumSubscribe subscribe)
-    {
-        sendMethod(cast(int) id, StratumMethod.miningSubscribe, subscribe.userAgent);
-    }
-
-    private void sendSubmit(MethodCallID id, StratumSubmit submit)
-    {
-        sendMethod(
-            cast(int) id,
-            StratumMethod.miningSubmit,
-            submit.workerName,
-            submit.jobID,
-            submit.extraNonce2,
-            submit.ntime,
-            submit.nonce);
-    }
-
-    private void receiveNotify(const(JSONValue)[] params)
-    {
-        auto notify = StratumNotify(
-            params[0].str,
-            params[1].str,
-            params[2].str,
-            params[3].str,
-            cast(shared string[]) params[4].array.map!((e) => e.str).array,
-            params[5].str,
-            params[6].str,
-            params[7].str,
-            params[8].boolean);
-        concurrency.send(threadID_, notify);
-    }
-
-    private void receiveSetDifficulty(JSONValue[] params)
-    {
-        auto setDifficulty = StratumSetDifficulty(cast(int) params[0].integer);
-        concurrency.send(threadID_, setDifficulty);
-    }
-
-    private void receiveSetExtranonce(JSONValue[] params)
-    {
-        auto setExtranonce = StratumSetExtranonce(
-            params[0].str, cast(int) params[1].integer);
-        concurrency.send(threadID_, setExtranonce);
+        concurrency.send(threadID_, result);
     }
 }
 
