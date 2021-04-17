@@ -13,3 +13,5 @@ stratumd-test-*
 *.o
 *.obj
 *.lst
+/.env
+
