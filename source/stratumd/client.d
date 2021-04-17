@@ -1,6 +1,6 @@
 module stratumd.client;
 
-import core.time : msecs;
+import core.time : msecs, Duration;
 import std.conv : to;
 import std.concurrency :
     send, spawnLinked, thisTid, Tid, receiveTimeout;
@@ -13,7 +13,9 @@ import stratumd.methods :
     StratumNotify,
     StratumSubscribe,
     StratumErrorResult,
-    StratumReconnect;
+    StratumReconnect,
+    StratumSetDifficulty,
+    StratumSetExtranonce;
 import stratumd.exception : StratumException;
 import stratumd.job :
     StratumJob,
@@ -55,11 +57,15 @@ final class StratumClient
         ++messageID_;
         enforceCallAPI!(StratumAuthorize.Result)(StratumAuthorize(messageID_, params.workerName, params.password));
 
+        currentJob_ = currentJob_.init;
+        jobs_.clear();
+
         ++messageID_;
         threadID_.send(StratumSubscribe(messageID_, params.workerName));
-        auto notify = enforceReceiveAPI!StratumNotify(messageID_);
-        currentJob_ = notify;
-        jobs_[notify.jobID] = notify;
+        while(jobs_.length == 0)
+        {
+            receiveServerMethod(10000.msecs);
+        }
     }
 
     /**
@@ -105,16 +111,53 @@ private:
     Result!T receiveAPI(T)(int id)
     {
         Result!T result;
-        immutable received = receiveTimeout(
-            10000.msecs,
-            (T r) { result = Result!T(r); },
-            (StratumErrorResult r) { result = Result!T(r); });
-        if (!received)
+        while (result.empty)
         {
-            result = Result!T(StratumErrorResult(id, "timeout"));
+            immutable received = receiveTimeout(
+                10000.msecs,
+                (T r) { result = Result!T(r); },
+                (StratumErrorResult r) { result = Result!T(r); },
+                &onNotify,
+                &onSetDifficulty,
+                &onSetExtranonce);
+            if (!received)
+            {
+                result = Result!T(StratumErrorResult(id, "timeout"));
+            }
         }
 
         return result;
+    }
+
+    bool receiveServerMethod(Duration timeout)
+    {
+        return receiveTimeout(
+            timeout,
+            &onNotify,
+            &onSetDifficulty,
+            &onSetExtranonce);
+    }
+
+    void onNotify(StratumNotify notify)
+    {
+        if (notify.cleanJobs)
+        {
+            jobs_.clear();
+        }
+
+        currentJob_ = notify;
+        jobs_[notify.jobID] = notify;
+    }
+
+    void onSetDifficulty(StratumSetDifficulty setDifficulty)
+    {
+        jobBuilder_.difficulty = setDifficulty.difficulty;
+    }
+
+    void onSetExtranonce(StratumSetExtranonce setExtranonce)
+    {
+        jobBuilder_.extranonce1 = setExtranonce.extranonce1;
+        jobBuilder_.extranonce2Size = setExtranonce.extranonce2Size;
     }
 }
 
