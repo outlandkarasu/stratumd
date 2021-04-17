@@ -1,218 +1,117 @@
 module stratumd.client;
 
 import core.time : msecs;
-import std.algorithm : countUntil, copy, map;
-import std.array : Appender, appender, array;
-import std.json : JSONValue, parseJSON, toJSON;
-import std.string : representation;
-import std.experimental.logger : errorf, warningf, infof;
-import std.typecons : Typedef, Nullable, nullable;
+import std.concurrency :
+    send, spawnLinked, thisTid, Tid, receiveTimeout;
+import std.variant : Algebraic;
+import std.typecons : Nullable, nullable;
 
-import concurrency = std.concurrency;
-
-import stratumd.tcp_connection :
-    TCPHandler,
-    TCPSender,
-    TCPCloser,
-    openTCPConnection;
+import stratumd.connection : openStratumConnection;
 import stratumd.methods :
-    StratumSubscribe,
-    StratumAuthorize,
+    StratumErrorResult,
     StratumReconnect;
 
 /**
-Open stratum connection.
-
-Params:
-    hostname = target host name.
-    port = target port no.
-    handler = TCP event handler.
+Stratum connection parameters.
 */
-void openStratumConnection(scope const(char)[] hostname, ushort port)
+struct StratumClientParams
 {
-    import std.stdio : writefln;
-    import core.thread : Thread;
-
-    auto connectionThreadID = concurrency.spawnLinked(
-        &startConnection, hostname.idup, port, concurrency.thisTid);
-    concurrency.send(connectionThreadID, StratumSubscribe(1, "test-worker"));
-    concurrency.receive((StratumSubscribe.Result r) => writefln("received: %s", r));
-
-    Thread.sleep(5000.msecs);
-
-    concurrency.send(connectionThreadID, StratumReconnect());
-    concurrency.receive((StratumReconnect.Result r) => writefln("closed: %s", r));
+    string hostname;
+    ushort port;
+    string workerName;
+    string password;
 }
 
-private:
-
-void startConnection(string hostname, ushort port, concurrency.Tid parent)
+/**
+Stratum client.
+*/
+final class StratumClient
 {
-    scope handler = new StratumClient(parent);
-    openTCPConnection(hostname, port, handler);
-}
+    /**
+    Connect stratum host.
 
-final class StratumClient : TCPHandler
-{
-    this(concurrency.Tid threadID) @nogc nothrow pure @safe scope
+    Params:
+        params = connection parameters.
+    */
+    void connect()(auto ref const(StratumClientParams) params) scope
     {
-        this.threadID_ = threadID;
+        threadID_ = spawnLinked(&openStratumConnection, params.hostname, params.port, thisTid);
     }
 
     /**
-    Send method.
-
-    Params:
-        T = parameter type.
-        id = method call ID.
-        method = method name.
-        args = method arguments;
+    Close connection.
     */
-    void sendMethod(T)(auto ref const(T) message)
+    void close()
     {
-        infof("send: %s", message);
-        this.sendBuffer_ ~= message.toJSON.representation;
-        this.sendBuffer_ ~= '\n';
-        this.resultHandlers_[message.id]
-            = (ref const(JSONValue) json) => onResult(T.Result.parse(json));
+        callAPI!(StratumReconnect.Result)(StratumReconnect(1));
+        threadID_ = Tid.init;
     }
 
-    override void onSendable(scope TCPSender sender)
+private:
+    Tid threadID_;
+
+    Result!T callAPI(T, R)(R request)
     {
-        if (sendBuffer_[].length > 0)
+        Result!T result;
+        threadID_.send(request);
+        immutable received = receiveTimeout(
+            10000.msecs,
+            (T r) { result = Result!T(r); },
+            (StratumErrorResult r) { result = Result!T(r); });
+        if (!received)
         {
-            const(void)[] data = sendBuffer_[];
-            sender.send(data);
-            sendBuffer_.truncateBuffer(data.length);
+            result = Result!T(StratumErrorResult(request.id, "timeout"));
         }
+
+        return result;
+    }
+}
+
+private:
+
+struct Result(T)
+{
+    this()(auto ref const(T) result) scope
+    {
+        this.value_ = typeof(this.value_)(result);
     }
 
-    override void onReceive(scope const(void)[] data, scope TCPCloser closer)
+    this()(auto ref const(StratumErrorResult) error) scope
     {
-        auto receiveBytes = cast(const(ubyte)[]) data;
-        receiveBuffer_ ~= receiveBytes;
-        scope slice = receiveBuffer_[];
-        immutable foundSeparator = slice.countUntil(JSON_SEPARATOR);
-        if (foundSeparator >= 0)
-        {
-            scope(exit) receiveBuffer_.truncateBuffer(slice.length - (foundSeparator + 1));
-
-            scope line = cast(const(char)[]) receiveBuffer_[][0 .. foundSeparator];
-            infof("receive: %s", line);
-            parseJSONMessage(line);
-        }
+        this.value_ = typeof(this.value_)(error);
     }
 
-    override void onError(scope string errorText, scope TCPCloser closer)
+    @property const
     {
-        errorf("TCP connection error: %s", errorText);
-    }
-
-    override void onIdle(scope TCPCloser closer)
-    {
-        if (terminated_)
+        Nullable!(const(T)) result()
         {
-            return;
+            auto p = value_.peek!(const(T));
+            return p ? (*p).nullable : typeof(return).init;
         }
 
-        try
+        Nullable!(const(StratumErrorResult)) error()
         {
-            concurrency.receiveTimeout(
-                1.msecs,
-                (StratumAuthorize m) => sendMethod(m),
-                (StratumSubscribe m) => sendMethod(m),
-                (StratumReconnect m) => closeConnection(m, closer));
-        }
-        catch (concurrency.OwnerTerminated e)
-        {
-            infof("owner terminated: %s", e.message);
-            terminated_ = true;
-            closer.close();
+            auto p = value_.peek!(const(StratumErrorResult));
+            return p ? (*p).nullable : typeof(return).init;
         }
     }
 
 private:
-    enum JSON_SEPARATOR = '\n';
-
-    alias ResultHandler = void delegate(ref const(JSONValue) json);
-
-    Appender!(ubyte[]) sendBuffer_;
-    Appender!(ubyte[]) receiveBuffer_;
-    ResultHandler[int] resultHandlers_;
-    concurrency.Tid threadID_;
-    bool terminated_;
-
-    void parseJSONMessage(scope const(char)[] data)
-    {
-        const json = parseJSON(data);
-        auto method = "method" in json;
-        if (method)
-        {
-            return;
-        }
-
-        auto result = "result" in json;
-        if (result)
-        {
-            immutable id = cast(int) json["id"].integer;
-            auto handler = id in resultHandlers_;
-            resultHandlers_.remove(id);
-
-            auto error = "error" in json;
-            if (error && !error.isNull)
-            {
-                onJSONResultError(id, data);
-                return;
-            }
-
-            if(handler)
-            {
-                (*handler)(json);
-                return;
-            }
-        }
-
-        // unknown.
-        warningf("unrecognized message: %s", data);
-    }
-
-    private void onJSONResultError(int id, scope const(char)[] errorResponse)
-    {
-        errorf("result error[%d]: %s", id, errorResponse);
-    }
-
-    private void onResult(T)(T result)
-    {
-        infof("onResult: %s", result);
-        concurrency.send(threadID_, result);
-    }
-
-    private void closeConnection(scope ref const(StratumReconnect) message, scope TCPCloser closer)
-    {
-        closer.close();
-        onResult(StratumReconnect.Result(message.id));
-    }
-}
-
-void truncateBuffer(E)(ref Appender!E buffer, size_t restSize)
-{
-    copy(buffer[][$ - restSize .. $], buffer[][0 .. restSize]);
-    buffer.shrinkTo(restSize);
+    Algebraic!(const(T), const(StratumErrorResult)) value_;
 }
 
 ///
 unittest
 {
-    import std.array : appender;
-    auto buffer = appender!(char[])();
-    buffer ~= "test";
+    import stratumd.methods : StratumAuthorize;
+    immutable result = Result!(StratumAuthorize.Result)(StratumAuthorize.Result(1, true));
+    assert(!result.result.isNull);
+    assert(result.error.isNull);
+    assert(result.result.get() == StratumAuthorize.Result(1, true));
 
-    buffer.truncateBuffer(3);
-    assert(buffer[] == "est");
-
-    buffer.truncateBuffer(2);
-    assert(buffer[] == "st");
-
-    buffer.truncateBuffer(0);
-    assert(buffer[] == "");
+    immutable error = Result!(StratumAuthorize.Result)(StratumErrorResult(1, "[]"));
+    assert(error.result.isNull);
+    assert(!error.error.isNull);
+    assert(error.error.get() == StratumErrorResult(1, "[]"));
 }
+
