@@ -15,6 +15,7 @@ import stratumd.methods :
     StratumErrorResult,
     StratumReconnect;
 import stratumd.exception : StratumException;
+import stratumd.job : StratumJob, StratumJobResult;
 
 /**
 Stratum connection parameters.
@@ -25,29 +26,6 @@ struct StratumClientParams
     ushort port;
     string workerName;
     string password;
-}
-
-/**
-Stratum job request.
-*/
-struct StratumJob
-{
-    string jobID;
-    string header;
-    string extranonce1;
-    int extranonce2Size;
-    double difficulty;
-}
-
-/**
-Stratum job response.
-*/
-struct StratumJobResult
-{
-    string jobID;
-    string ntime;
-    string nonce;
-    string extranonce2;
 }
 
 /**
