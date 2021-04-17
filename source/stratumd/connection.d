@@ -4,6 +4,7 @@ import core.time : msecs;
 import std.algorithm : countUntil, copy, map;
 import std.array : Appender, appender, array;
 import std.json : JSONValue, parseJSON, toJSON;
+import std.meta : AliasSeq;
 import std.string : representation;
 import std.experimental.logger : errorf, warningf, infof, info;
 import std.typecons : Typedef, Nullable, nullable;
@@ -19,6 +20,9 @@ import stratumd.methods :
     StratumSubscribe,
     StratumAuthorize,
     StratumReconnect,
+    StratumNotify,
+    StratumSetExtranonce,
+    StratumSetDifficulty,
     StratumErrorResult;
 
 /**
@@ -60,7 +64,7 @@ final class StratumHandler : TCPHandler
         this.sendBuffer_ ~= message.toJSON.representation;
         this.sendBuffer_ ~= '\n';
         this.resultHandlers_[message.id]
-            = (ref const(JSONValue) json) => onResult(T.Result.parse(json));
+            = (ref const(JSONValue) json) => onReceiveMessage(T.Result.parse(json));
     }
 
     override void onSendable(scope TCPSender sender)
@@ -85,7 +89,7 @@ final class StratumHandler : TCPHandler
 
             scope line = cast(const(char)[]) receiveBuffer_[][0 .. foundSeparator];
             infof("receive: %s", line);
-            parseJSONMessage(line);
+            parseJSONMessage(line, closer);
         }
     }
 
@@ -128,12 +132,13 @@ private:
     concurrency.Tid threadID_;
     bool terminated_;
 
-    void parseJSONMessage(scope const(char)[] data)
+    void parseJSONMessage(scope const(char)[] data, scope TCPCloser closer)
     {
         const json = parseJSON(data);
         auto method = "method" in json;
         if (method)
         {
+            onReceiveMethod(method.str, json, closer);
             return;
         }
 
@@ -162,23 +167,45 @@ private:
         warningf("unrecognized message: %s", data);
     }
 
+    private void onReceiveMethod(scope string method, const(JSONValue) json, scope TCPCloser closer)
+    {
+        infof("onReceiveMethod: %s", method);
+
+        auto params = json["params"].array;
+        if (method == StratumReconnect.method)
+        {
+            info("reconnect from host");
+            closeConnection(StratumReconnect.parse(params), closer);
+            return;
+        }
+
+        static foreach (M; AliasSeq!(StratumNotify, StratumSetDifficulty, StratumSetExtranonce))
+        {
+            if (method == M.method)
+            {
+                onReceiveMessage(M.parse(params));
+                return;
+            }
+        }
+    }
+
     private void onJSONResultError(const(JSONValue) json)
     {
-        errorf("result error: %s", json);
-        onResult(StratumErrorResult.parse(json));
+        errorf("result error");
+        onReceiveMessage(StratumErrorResult.parse(json));
     }
 
-    private void onResult(T)(T result)
+    private void onReceiveMessage(T)(T message)
     {
-        infof("onResult: %s", result);
-        concurrency.send(threadID_, result);
+        infof("onReceiveMessage: %s", message);
+        concurrency.send(threadID_, message);
     }
 
-    private void closeConnection(scope ref const(StratumReconnect) message, scope TCPCloser closer)
+    private void closeConnection()(auto scope ref const(StratumReconnect) message, scope TCPCloser closer)
     {
         infof("close connection: %s", message);
         closer.close();
-        onResult(StratumReconnect.Result(message.id));
+        onReceiveMessage(StratumReconnect.Result(message.id));
     }
 }
 
@@ -204,3 +231,4 @@ unittest
     buffer.truncateBuffer(0);
     assert(buffer[] == "");
 }
+

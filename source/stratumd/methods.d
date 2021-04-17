@@ -243,7 +243,7 @@ struct StratumReconnect
         int id;
     }
 
-    static StratumRecoonect parse()(const(JSONValue)[] params)
+    static StratumReconnect parse()(const(JSONValue)[] params)
     {
         return StratumReconnect.init;
     }
