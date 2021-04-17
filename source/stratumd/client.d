@@ -8,6 +8,8 @@ import std.typecons : Nullable, nullable;
 
 import stratumd.connection : openStratumConnection;
 import stratumd.methods :
+    StratumAuthorize,
+    StratumSubscribe,
     StratumErrorResult,
     StratumReconnect;
 
@@ -36,6 +38,11 @@ final class StratumClient
     void connect()(auto ref const(StratumClientParams) params) scope
     {
         threadID_ = spawnLinked(&openStratumConnection, params.hostname, params.port, thisTid);
+
+        messageID_ = 1;
+        callAPI!(StratumSubscribe.Result)(StratumSubscribe(messageID_));
+        ++messageID_;
+        callAPI!(StratumAuthorize.Result)(StratumAuthorize(messageID_, params.workerName, params.password));
     }
 
     /**
@@ -43,12 +50,14 @@ final class StratumClient
     */
     void close()
     {
-        callAPI!(StratumReconnect.Result)(StratumReconnect(1));
+        ++messageID_;
+        callAPI!(StratumReconnect.Result)(StratumReconnect(messageID_));
         threadID_ = Tid.init;
     }
 
 private:
     Tid threadID_;
+    int messageID_;
 
     Result!T callAPI(T, R)(R request)
     {
