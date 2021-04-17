@@ -16,7 +16,9 @@ import stratumd.tcp_connection :
     TCPCloser,
     openTCPConnection;
 import stratumd.methods :
-    StratumAuthorize;
+    StratumSubscribe,
+    StratumAuthorize,
+    StratumReconnect;
 
 /**
 Open stratum connection.
@@ -28,8 +30,18 @@ Params:
 */
 void openStratumConnection(scope const(char)[] hostname, ushort port)
 {
+    import std.stdio : writefln;
+    import core.thread : Thread;
+
     auto connectionThreadID = concurrency.spawnLinked(
         &startConnection, hostname.idup, port, concurrency.thisTid);
+    concurrency.send(connectionThreadID, StratumSubscribe(1, "test-worker"));
+    concurrency.receive((StratumSubscribe.Result r) => writefln("received: %s", r));
+
+    Thread.sleep(5000.msecs);
+
+    concurrency.send(connectionThreadID, StratumReconnect());
+    concurrency.receive((StratumReconnect.Result r) => writefln("closed: %s", r));
 }
 
 private:
@@ -83,7 +95,7 @@ final class StratumClient : TCPHandler
         immutable foundSeparator = slice.countUntil(JSON_SEPARATOR);
         if (foundSeparator >= 0)
         {
-            scope(exit) receiveBuffer_.truncateBuffer(foundSeparator);
+            scope(exit) receiveBuffer_.truncateBuffer(slice.length - (foundSeparator + 1));
 
             scope line = cast(const(char)[]) receiveBuffer_[][0 .. foundSeparator];
             infof("receive: %s", line);
@@ -98,20 +110,24 @@ final class StratumClient : TCPHandler
 
     override void onIdle(scope TCPCloser closer)
     {
-        if (!terminated_)
+        if (terminated_)
         {
-            try
-            {
-                concurrency.receiveTimeout(
-                    1.msecs,
-                    (StratumAuthorize m) => sendMethod(m));
-            }
-            catch (concurrency.OwnerTerminated e)
-            {
-                infof("owner terminated: %s", e);
-                terminated_ = true;
-                closer.close();
-            }
+            return;
+        }
+
+        try
+        {
+            concurrency.receiveTimeout(
+                1.msecs,
+                (StratumAuthorize m) => sendMethod(m),
+                (StratumSubscribe m) => sendMethod(m),
+                (StratumReconnect m) => closeConnection(m, closer));
+        }
+        catch (concurrency.OwnerTerminated e)
+        {
+            infof("owner terminated: %s", e.message);
+            terminated_ = true;
+            closer.close();
         }
     }
 
@@ -142,15 +158,17 @@ private:
             auto handler = id in resultHandlers_;
             resultHandlers_.remove(id);
 
-            if ("error" in json)
+            auto error = "error" in json;
+            if (error && !error.isNull)
             {
-                // handle error.
                 onJSONResultError(id, data);
                 return;
             }
-            else if(handler)
+
+            if(handler)
             {
                 (*handler)(json);
+                return;
             }
         }
 
@@ -163,16 +181,23 @@ private:
         errorf("result error[%d]: %s", id, errorResponse);
     }
 
-    private void onResult(T)(auto ref const(T) result)
+    private void onResult(T)(T result)
     {
+        infof("onResult: %s", result);
         concurrency.send(threadID_, result);
+    }
+
+    private void closeConnection(scope ref const(StratumReconnect) message, scope TCPCloser closer)
+    {
+        closer.close();
+        onResult(StratumReconnect.Result(message.id));
     }
 }
 
-void truncateBuffer(E)(ref Appender!E buffer, size_t truncateSize)
+void truncateBuffer(E)(ref Appender!E buffer, size_t restSize)
 {
-    copy(buffer[][truncateSize .. $], buffer[][0 .. $ - truncateSize]);
-    buffer.shrinkTo(buffer[].length - truncateSize);
+    copy(buffer[][$ - restSize .. $], buffer[][0 .. restSize]);
+    buffer.shrinkTo(restSize);
 }
 
 ///
@@ -181,6 +206,13 @@ unittest
     import std.array : appender;
     auto buffer = appender!(char[])();
     buffer ~= "test";
+
+    buffer.truncateBuffer(3);
+    assert(buffer[] == "est");
+
     buffer.truncateBuffer(2);
-    assert(buffer[] == "st", buffer[]);
+    assert(buffer[] == "st");
+
+    buffer.truncateBuffer(0);
+    assert(buffer[] == "");
 }

@@ -235,6 +235,8 @@ struct StratumReconnect
 {
     enum method = "client.reconnect";
 
+    int id;
+
     struct Result
     {
         int id;
