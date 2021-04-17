@@ -145,6 +145,11 @@ struct Result(T)
             auto p = value_.peek!StratumErrorResult;
             return p ? (*p).nullable : typeof(return).init;
         }
+
+        bool empty() const pure nothrow
+        {
+            return !value_.hasValue;
+        }
     }
 
 private:
@@ -156,13 +161,21 @@ unittest
 {
     import stratumd.methods : StratumAuthorize;
     auto result = Result!(StratumAuthorize.Result)(StratumAuthorize.Result(1, true));
+    assert(!result.empty);
     assert(!result.result.isNull);
     assert(result.error.isNull);
     assert(result.result.get() == StratumAuthorize.Result(1, true));
 
     auto error = Result!(StratumAuthorize.Result)(StratumErrorResult(1, "[]"));
+    assert(!error.empty);
     assert(error.result.isNull);
     assert(!error.error.isNull);
     assert(error.error.get() == StratumErrorResult(1, "[]"));
+
+    auto empty = Result!(StratumAuthorize.Result)();
+    assert(empty.empty);
+    assert(empty.result.isNull);
+    assert(empty.error.isNull);
+
 }
 
