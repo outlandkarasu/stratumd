@@ -55,12 +55,8 @@ final class StratumClient
         ++messageID_;
         threadID_.send(StratumSubscribe(messageID_, params.workerName));
         auto notify = enforceReceiveAPI!StratumNotify(messageID_);
-        jobs_[notify.jobID] = StratumJob(
-            notify.jobID,
-            "",
-            extranonce1_,
-            extranonce2Size_,
-            difficulty_);
+        currentJob_ = notify;
+        jobs_[notify.jobID] = notify;
     }
 
     /**
@@ -79,7 +75,8 @@ private:
     string extranonce1_;
     int extranonce2Size_;
     double difficulty_;
-    StratumJob[string] jobs_;
+    StratumNotify currentJob_;
+    StratumNotify[string] jobs_;
 
     Result!T callAPI(T, R)(R request)
     {
@@ -87,13 +84,13 @@ private:
         return receiveAPI!T(request.id);
     }
 
-    const(T) enforceCallAPI(T, R)(R request)
+    T enforceCallAPI(T, R)(R request)
     {
         threadID_.send(request);
         return enforceReceiveAPI!T(request.id);
     }
 
-    const(T) enforceReceiveAPI(T)(int id)
+    T enforceReceiveAPI(T)(int id)
     {
         auto result = receiveAPI!T(id);
         if (!result.error.isNull)
@@ -124,33 +121,33 @@ private:
 
 struct Result(T)
 {
-    this()(auto ref const(T) result) scope
+    this()(T result) scope
     {
         this.value_ = typeof(this.value_)(result);
     }
 
-    this()(auto ref const(StratumErrorResult) error) scope
+    this()(StratumErrorResult error) scope
     {
         this.value_ = typeof(this.value_)(error);
     }
 
-    @property const
+    @property
     {
-        Nullable!(const(T)) result()
+        Nullable!T result()
         {
-            auto p = value_.peek!(const(T));
+            auto p = value_.peek!T;
             return p ? (*p).nullable : typeof(return).init;
         }
 
-        Nullable!(const(StratumErrorResult)) error()
+        Nullable!StratumErrorResult error()
         {
-            auto p = value_.peek!(const(StratumErrorResult));
+            auto p = value_.peek!StratumErrorResult;
             return p ? (*p).nullable : typeof(return).init;
         }
     }
 
 private:
-    Algebraic!(const(T), const(StratumErrorResult)) value_;
+    Algebraic!(T, StratumErrorResult) value_;
 }
 
 ///
