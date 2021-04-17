@@ -248,6 +248,9 @@ struct StratumReconnect
     }
 }
 
+/**
+Stratum generic boolean result.
+*/
 struct StratumBooleanResult
 {
     int id;
@@ -270,6 +273,32 @@ unittest
     immutable result = StratumBooleanResult.parse(json);
     assert(result.id == 1);
     assert(result.result == true);
+}
+
+/**
+Stratum error result.
+*/
+struct StratumErrorResult
+{
+    int id;
+    string error;
+
+    static StratumErrorResult parse()(auto ref const(JSONValue) json)
+    {
+        immutable id = cast(int) json["id"].integer;
+        return StratumErrorResult(id, json["error"].toJSON);
+    }
+}
+
+///
+unittest
+{
+    import std.json : parseJSON;
+
+    auto json = parseJSON(`{"id":1,"error":[21,"job not found",null],"result":null}`);
+    immutable result = StratumErrorResult.parse(json);
+    assert(result.id == 1);
+    assert(result.error == `[21,"job not found",null]`);
 }
 
 private:
