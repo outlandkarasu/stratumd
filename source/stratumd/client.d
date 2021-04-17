@@ -1,6 +1,7 @@
 module stratumd.client;
 
 import core.time : msecs;
+import std.conv : to;
 import std.concurrency :
     send, spawnLinked, thisTid, Tid, receiveTimeout;
 import std.variant : Algebraic;
@@ -9,9 +10,11 @@ import std.typecons : Nullable, nullable;
 import stratumd.connection : openStratumConnection;
 import stratumd.methods :
     StratumAuthorize,
+    StratumNotify,
     StratumSubscribe,
     StratumErrorResult,
     StratumReconnect;
+import stratumd.exception : StratumException;
 
 /**
 Stratum connection parameters.
@@ -22,6 +25,29 @@ struct StratumClientParams
     ushort port;
     string workerName;
     string password;
+}
+
+/**
+Stratum job request.
+*/
+struct StratumJob
+{
+    string jobID;
+    string header;
+    string extranonce1;
+    int extranonce2Size;
+    double difficulty;
+}
+
+/**
+Stratum job response.
+*/
+struct StratumJobResult
+{
+    string jobID;
+    string ntime;
+    string nonce;
+    string extranonce2;
 }
 
 /**
@@ -40,9 +66,23 @@ final class StratumClient
         threadID_ = spawnLinked(&openStratumConnection, params.hostname, params.port, thisTid);
 
         messageID_ = 1;
-        callAPI!(StratumSubscribe.Result)(StratumSubscribe(messageID_));
+        difficulty_ = 1.0;
+        auto subscribeResult = enforceCallAPI!(StratumSubscribe.Result)(StratumSubscribe(messageID_));
+        extranonce1_ = subscribeResult.extranonce1;
+        extranonce2Size_ = subscribeResult.extranonce2Size;
+
         ++messageID_;
-        callAPI!(StratumAuthorize.Result)(StratumAuthorize(messageID_, params.workerName, params.password));
+        enforceCallAPI!(StratumAuthorize.Result)(StratumAuthorize(messageID_, params.workerName, params.password));
+
+        ++messageID_;
+        threadID_.send(StratumSubscribe(messageID_, params.workerName));
+        auto notify = enforceReceiveAPI!StratumNotify(messageID_);
+        jobs_[notify.jobID] = StratumJob(
+            notify.jobID,
+            "",
+            extranonce1_,
+            extranonce2Size_,
+            difficulty_);
     }
 
     /**
@@ -58,18 +98,44 @@ final class StratumClient
 private:
     Tid threadID_;
     int messageID_;
+    string extranonce1_;
+    int extranonce2Size_;
+    double difficulty_;
+    StratumJob[string] jobs_;
 
     Result!T callAPI(T, R)(R request)
     {
-        Result!T result;
         threadID_.send(request);
+        return receiveAPI!T(request.id);
+    }
+
+    T enforceCallAPI(T, R)(R request)
+    {
+        threadID_.send(request);
+        return enforceReceiveAPI!T(request.id);
+    }
+
+    T enforceReceiveAPI(T)(int id)
+    {
+        auto result = receiveAPI!T(id);
+        if (!result.error.isNull)
+        {
+            throw new StratumException(result.to!string);
+        }
+
+        return result.result.get;
+    }
+
+    Result!T receiveAPI(T)(int id)
+    {
+        Result!T result;
         immutable received = receiveTimeout(
             10000.msecs,
             (T r) { result = Result!T(r); },
             (StratumErrorResult r) { result = Result!T(r); });
         if (!received)
         {
-            result = Result!T(StratumErrorResult(request.id, "timeout"));
+            result = Result!T(StratumErrorResult(id, "timeout"));
         }
 
         return result;

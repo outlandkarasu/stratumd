@@ -183,11 +183,11 @@ struct StratumSetDifficulty
 {
     enum method = "mining.set_difficulty";
 
-    int difficulty;
+    double difficulty;
 
     static StratumSetDifficulty parse()(const(JSONValue)[] params)
     {
-        return StratumSetDifficulty(cast(int) params[0].integer);
+        return StratumSetDifficulty(params[0].floating);
     }
 }
 
@@ -195,10 +195,11 @@ struct StratumSetDifficulty
 unittest
 {
     import std.json : parseJSON;
+    import std.math : isClose;
 
-    auto json = parseJSON(`{"id":1,"params":[4]}`);
+    auto json = parseJSON(`{"id":1,"params":[1.234]}`);
     immutable result = StratumSetDifficulty.parse(json["params"].array);
-    assert(result.difficulty == 4);
+    assert(result.difficulty.isClose(1.234));
 }
 
 /**
