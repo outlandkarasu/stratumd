@@ -34,9 +34,9 @@ Job builder.
 struct StratumJobBuilder
 {
     string extranonce1;
-    ulong extranonce2;
     int extranonce2Size;
-    double difficulty;
+    ulong extranonce2 = 0;
+    double difficulty = 1.0;
 
     StratumJob build()(auto scope ref const(StratumNotify) notify) @nogc nothrow pure @safe const
     {

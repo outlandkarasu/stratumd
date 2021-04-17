@@ -15,7 +15,10 @@ import stratumd.methods :
     StratumErrorResult,
     StratumReconnect;
 import stratumd.exception : StratumException;
-import stratumd.job : StratumJob, StratumJobResult;
+import stratumd.job :
+    StratumJob,
+    StratumJobBuilder,
+    StratumJobResult;
 
 /**
 Stratum connection parameters.
@@ -44,10 +47,10 @@ final class StratumClient
         threadID_ = spawnLinked(&openStratumConnection, params.hostname, params.port, thisTid);
 
         messageID_ = 1;
-        difficulty_ = 1.0;
         auto subscribeResult = enforceCallAPI!(StratumSubscribe.Result)(StratumSubscribe(messageID_));
-        extranonce1_ = subscribeResult.extranonce1;
-        extranonce2Size_ = subscribeResult.extranonce2Size;
+        jobBuilder_ = StratumJobBuilder(
+            subscribeResult.extranonce1,
+            subscribeResult.extranonce2Size);
 
         ++messageID_;
         enforceCallAPI!(StratumAuthorize.Result)(StratumAuthorize(messageID_, params.workerName, params.password));
@@ -72,9 +75,7 @@ final class StratumClient
 private:
     Tid threadID_;
     int messageID_;
-    string extranonce1_;
-    int extranonce2Size_;
-    double difficulty_;
+    StratumJobBuilder jobBuilder_;
     StratumNotify currentJob_;
     StratumNotify[string] jobs_;
 
@@ -154,12 +155,12 @@ private:
 unittest
 {
     import stratumd.methods : StratumAuthorize;
-    immutable result = Result!(StratumAuthorize.Result)(StratumAuthorize.Result(1, true));
+    auto result = Result!(StratumAuthorize.Result)(StratumAuthorize.Result(1, true));
     assert(!result.result.isNull);
     assert(result.error.isNull);
     assert(result.result.get() == StratumAuthorize.Result(1, true));
 
-    immutable error = Result!(StratumAuthorize.Result)(StratumErrorResult(1, "[]"));
+    auto error = Result!(StratumAuthorize.Result)(StratumErrorResult(1, "[]"));
     assert(error.result.isNull);
     assert(!error.error.isNull);
     assert(error.error.get() == StratumErrorResult(1, "[]"));
