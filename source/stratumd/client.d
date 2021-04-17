@@ -87,13 +87,13 @@ private:
         return receiveAPI!T(request.id);
     }
 
-    T enforceCallAPI(T, R)(R request)
+    const(T) enforceCallAPI(T, R)(R request)
     {
         threadID_.send(request);
         return enforceReceiveAPI!T(request.id);
     }
 
-    T enforceReceiveAPI(T)(int id)
+    const(T) enforceReceiveAPI(T)(int id)
     {
         auto result = receiveAPI!T(id);
         if (!result.error.isNull)

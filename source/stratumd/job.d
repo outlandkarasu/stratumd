@@ -23,3 +23,17 @@ struct StratumJobResult
     string extranonce2;
 }
 
+/**
+Job builder.
+*/
+struct StratumJobBuilder
+{
+    string extranonce1;
+    int extranonce2Size;
+    double difficulty;
+
+    StratumJob build()(auto scope ref const(StratumNotify) notify) @nogc nothrow pure @safe const
+    {
+        return StratumJob.init;
+    }
+}

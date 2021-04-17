@@ -1,5 +1,7 @@
 module stratumd.methods;
 
+import std.algorithm : map;
+import std.array : array;
 import std.json : JSONValue, toJSON;
 import std.typecons : Nullable, nullable;
 
@@ -130,8 +132,7 @@ struct StratumNotify
     string prevHash;
     string coinb1;
     string coinb2;
-    string merkleBranch1;
-    string merkleBranch2;
+    shared string[] merkleBranch;
     string blockVersion;
     string nbits;
     string ntime;
@@ -139,14 +140,19 @@ struct StratumNotify
 
     static StratumNotify parse()(const(JSONValue)[] params)
     {
-        auto markleBranches = params[4].array;
+        auto markleBranchValues = params[4].array;
+        auto markleBranch = new shared string[](markleBranchValues.length);
+        foreach (i, value; markleBranchValues)
+        {
+            markleBranch[i] = value.str;
+        }
+
         return StratumNotify(
             params[0].str,
             params[1].str,
             params[2].str,
             params[3].str,
-            markleBranches[0].str,
-            markleBranches[1].str,
+            markleBranch,
             params[5].str,
             params[6].str,
             params[7].str,
@@ -162,14 +168,13 @@ unittest
     auto json = parseJSON(
         `{"id":1,"method":"mining.notify",`
         ~ `"params":["job-id","prev-hash","coinb1","coinb2",`
-        ~ `["mb1","mb2"],"bversion","1234","5678",true]}`);
+        ~ `["mb1","mb2","mb3"],"bversion","1234","5678",true]}`);
     immutable result = StratumNotify.parse(json["params"].array);
     assert(result.jobID == "job-id");
     assert(result.prevHash == "prev-hash");
     assert(result.coinb1 == "coinb1");
     assert(result.coinb2 == "coinb2");
-    assert(result.merkleBranch1 == "mb1");
-    assert(result.merkleBranch2 == "mb2");
+    assert(result.merkleBranch == ["mb1", "mb2", "mb3"]);
     assert(result.blockVersion == "bversion");
     assert(result.nbits == "1234");
     assert(result.ntime == "5678");
