@@ -3,18 +3,21 @@ import std.stdio;
 import core.time : seconds;
 import std.datetime : Clock;
 import std.experimental.logger : errorf, info, infof;
+import std.process : environment;
+import std.conv : to;
 
 import stratumd.client : StratumClientParams, StratumClient;
 
 void main()
 {
-    scope client = new StratumClient();
     immutable StratumClientParams params = {
-        hostname: "sha256.usa-west.nicehash.com",
-        port: 3334,
-        workerName: "test-worker",
-        password: "test-password"
+        hostname: environment.get("STRATUMD_HOSTNAME"),
+        port: environment.get("STRATUMD_PORT").to!ushort,
+        workerName: environment.get("STRATUMD_WORKER_NAME"),
+        password: environment.get("STRATUMD_PASSWORD")
     };
+
+    scope client = new StratumClient();
     client.connect(params);
     client.close();
 }
