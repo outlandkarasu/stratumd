@@ -19,6 +19,7 @@ import stratumd.tcp_connection :
 import stratumd.methods :
     StratumSubscribe,
     StratumAuthorize,
+    StratumSubmit,
     StratumReconnect,
     StratumNotify,
     StratumSetExtranonce,
@@ -111,7 +112,11 @@ final class StratumHandler : TCPHandler
                 1.msecs,
                 (StratumAuthorize m) => sendMethod(m),
                 (StratumSubscribe m) => sendMethod(m),
-                (StratumReconnect m) => closeConnection(m, closer));
+                (StratumSubmit m) => sendMethod(m),
+                (StratumReconnect m) => {
+                    info("close from client");
+                    closeConnection(m, closer);
+                });
         }
         catch (concurrency.OwnerTerminated e)
         {

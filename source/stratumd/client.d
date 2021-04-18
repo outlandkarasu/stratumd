@@ -94,12 +94,18 @@ final class StratumClient
 
     void submit()(auto scope ref const(StratumJobResult) jobResult)
     {
+        auto job = jobResult.jobID in jobs_;
+        if (!job)
+        {
+            return;
+        }
+
         ++messageID_;
         callAPI!(StratumSubmit.Result)(StratumSubmit(
             messageID_,
             workerName_,
             jobResult.jobID,
-            format("%08x", jobResult.extranonce2),
+            format("%0*x", job.extranonce2Size * 2, jobResult.extranonce2),
             format("%08x", jobResult.ntime),
             format("%08x", jobResult.nonce)));
     }
@@ -120,7 +126,13 @@ private:
     int messageID_;
     StratumJobBuilder jobBuilder_;
     StratumNotify currentJob_;
-    StratumNotify[string] jobs_;
+    JobInfo[string] jobs_;
+
+    struct JobInfo
+    {
+        string extranonce1;
+        uint extranonce2Size;
+    }
 
     Result!T callAPI(T, R)(R request)
     {
@@ -183,7 +195,8 @@ private:
         }
 
         currentJob_ = notify;
-        jobs_[notify.jobID] = notify;
+        jobs_[notify.jobID] = JobInfo(
+            jobBuilder_.extranonce1, jobBuilder_.extranonce2Size);
     }
 
     void onSetDifficulty(StratumSetDifficulty setDifficulty)
