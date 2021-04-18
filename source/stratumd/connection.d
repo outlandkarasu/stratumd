@@ -113,7 +113,7 @@ final class StratumHandler : TCPHandler
                 (StratumAuthorize m) => sendMethod(m),
                 (StratumSubscribe m) => sendMethod(m),
                 (StratumSubmit m) => sendMethod(m),
-                (StratumReconnect m) => {
+                (StratumReconnect m) {
                     info("close from client");
                     closeConnection(m, closer);
                 });
