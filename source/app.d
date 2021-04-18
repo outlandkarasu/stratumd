@@ -19,6 +19,7 @@ void main()
 
     scope client = new StratumClient();
     client.connect(params);
+    writeln(client.buildCurrentJob(1));
     client.close();
 }
 

@@ -69,6 +69,27 @@ final class StratumClient
     }
 
     /**
+    Receive server method.
+    */
+    void doReceiveServerMethod()
+    {
+        while(receiveServerMethod(1.msecs)) {}
+    }
+
+    /**
+    Build current job.
+
+    Params:
+        extranonce2 = extranonce2 value.
+    Returns:
+        current job.
+    */
+    StratumJob buildCurrentJob(uint extranonce2)
+    {
+        return jobBuilder_.build(currentJob_, extranonce2);
+    }
+
+    /**
     Close connection.
     */
     void close()

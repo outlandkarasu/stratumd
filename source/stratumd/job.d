@@ -46,10 +46,9 @@ struct StratumJobBuilder
 {
     string extranonce1;
     int extranonce2Size;
-    ulong extranonce2 = 0;
     double difficulty = 1.0;
 
-    StratumJob build()(auto scope ref const(StratumNotify) notify) pure @safe const
+    StratumJob build()(auto scope ref const(StratumNotify) notify, uint extranonce2) pure @safe const
     {
         auto buffer = appender!(ubyte[])();
         buffer ~= notify.coinb1.hexToBytes;
@@ -97,7 +96,7 @@ unittest
         "01000000",
         "f2b9441a",
         "c7f5d74d",
-        false));
+        false), 0);
 }
 
 private:
