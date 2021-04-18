@@ -26,6 +26,7 @@ struct StratumJob
     string jobID;
     string header;
     uint[8] target;
+    uint extranonce2;
 }
 
 /**
@@ -34,9 +35,9 @@ Stratum job response.
 struct StratumJobResult
 {
     string jobID;
-    string ntime;
-    string nonce;
-    string extranonce2;
+    uint ntime;
+    uint nonce;
+    uint extranonce2;
 }
 
 /**
@@ -78,7 +79,11 @@ struct StratumJobBuilder
             ~ notify.ntime
             ~ notify.nbits
             ~ "00000000"; // nonce
-        return StratumJob(notify.jobID, header.idup, calculateTarget(difficulty));
+        return StratumJob(
+            notify.jobID,
+            header.idup,
+            calculateTarget(difficulty),
+            extranonce2);
     }
 }
 

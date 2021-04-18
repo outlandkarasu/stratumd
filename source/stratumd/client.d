@@ -1,6 +1,7 @@
 module stratumd.client;
 
 import core.time : msecs, Duration;
+import std.format : format;
 import std.conv : to;
 import std.concurrency :
     send, spawnLinked, thisTid, Tid, receiveTimeout;
@@ -12,6 +13,7 @@ import stratumd.methods :
     StratumAuthorize,
     StratumNotify,
     StratumSubscribe,
+    StratumSubmit,
     StratumErrorResult,
     StratumReconnect,
     StratumSetDifficulty,
@@ -46,6 +48,7 @@ final class StratumClient
     */
     void connect()(auto ref const(StratumClientParams) params) scope
     {
+        workerName_ = params.workerName;
         threadID_ = spawnLinked(&openStratumConnection, params.hostname, params.port, thisTid);
 
         messageID_ = 1;
@@ -89,6 +92,18 @@ final class StratumClient
         return jobBuilder_.build(currentJob_, extranonce2);
     }
 
+    void submit()(auto scope ref const(StratumJobResult) jobResult)
+    {
+        ++messageID_;
+        callAPI!(StratumSubmit.Result)(StratumSubmit(
+            messageID_,
+            workerName_,
+            jobResult.jobID,
+            format("%08x", jobResult.extranonce2),
+            format("%08x", jobResult.ntime),
+            format("%08x", jobResult.nonce)));
+    }
+
     /**
     Close connection.
     */
@@ -100,6 +115,7 @@ final class StratumClient
     }
 
 private:
+    string workerName_;
     Tid threadID_;
     int messageID_;
     StratumJobBuilder jobBuilder_;

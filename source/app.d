@@ -1,12 +1,13 @@
 import std.stdio;
 
 import core.time : seconds;
-import std.datetime : Clock;
+import std.datetime : Clock, stdTimeToUnixTime;
 import std.experimental.logger : errorf, info, infof;
 import std.process : environment;
 import std.conv : to;
 
 import stratumd.client : StratumClientParams, StratumClient;
+import stratumd.job : StratumJobResult;
 
 void main()
 {
@@ -19,7 +20,16 @@ void main()
 
     scope client = new StratumClient();
     client.connect(params);
-    writeln(client.buildCurrentJob(1));
+    immutable job = client.buildCurrentJob(1);
+    writeln(job);
+
+    immutable StratumJobResult jobResult = {
+        jobID: job.jobID,
+        ntime: cast(uint) Clock.currTime().stdTime.stdTimeToUnixTime,
+        nonce: 0x12345678,
+        extranonce2: 1,
+    };
+    client.submit(jobResult);
     client.close();
 }
 
