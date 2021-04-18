@@ -3,6 +3,7 @@ module stratumd.tcp_connection;
 import core.time : msecs;
 import std.exception : basicExceptionCtors;
 import std.socket : InternetAddress, Socket, TcpSocket, SocketSet, SocketShutdown;
+import std.experimental.logger : info;
 
 /**
 Close connection operator.
@@ -119,6 +120,7 @@ void openTCPConnection(scope const(char)[] hostname, ushort port, scope TCPHandl
             if (receivedSize == 0)
             {
                 // closed.
+                info("closed by host");
                 break;
             }
             else if (receivedSize == Socket.ERROR)
