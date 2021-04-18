@@ -104,8 +104,6 @@ unittest
         false), 0);
 }
 
-private:
-
 immutable(ubyte)[] hexToBytes(scope string hex) nothrow pure @safe
 {
     auto buffer = appender!(immutable(ubyte)[])();
