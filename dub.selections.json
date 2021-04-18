@@ -2,6 +2,7 @@
 	"fileVersion": 1,
 	"versions": {
 		"asdf": "0.7.5",
+		"karasux": "0.0.5",
 		"mir-algorithm": "3.10.44",
 		"mir-core": "1.1.64"
 	}
