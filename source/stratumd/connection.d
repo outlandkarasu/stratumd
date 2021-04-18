@@ -202,7 +202,6 @@ private:
 
     private void onReceiveMessage(T)(T message)
     {
-        infof("onReceiveMessage: %s", message);
         concurrency.send(threadID_, message);
     }
 
