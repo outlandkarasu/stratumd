@@ -130,7 +130,8 @@ final class StratumClient
     */
     bool submit()(auto scope ref const(StratumJobResult) jobResult)
     {
-        if (jobResult.empty || !hasJob(jobResult.jobID))
+        auto job = jobResult.jobID in jobs_;
+        if (jobResult.empty || !job)
         {
             return false;
         }
