@@ -38,6 +38,15 @@ struct StratumJobResult
     uint ntime;
     uint nonce;
     uint extranonce2;
+
+    /**
+    Returns:
+        true if result is empty.
+    */
+    @property bool empty() const @nogc nothrow pure @safe scope
+    {
+        return jobID.length == 0;
+    }
 }
 
 /**
