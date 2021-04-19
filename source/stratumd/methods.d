@@ -122,6 +122,33 @@ unittest
 }
 
 /**
+Stratum suggest difficulty method.
+*/
+struct StratumSuggestDifficulty
+{
+    enum method = "mining.suggest_difficulty";
+
+    int id;
+    double difficulty;
+
+    string toJSON() const
+    {
+        auto json = createMethodJSON(id, method);
+        json["params"] = [difficulty];
+        return json.toJSON();
+    }
+}
+
+///
+unittest
+{
+    auto authorize = StratumSuggestDifficulty(1, 128.0);
+    assert(authorize.toJSON ==
+        `{"id":1,"method":"mining.suggest_difficulty","params":[128]}`);
+}
+
+
+/**
 Stratum notify method.
 */
 struct StratumNotify
