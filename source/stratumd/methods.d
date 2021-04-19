@@ -2,7 +2,7 @@ module stratumd.methods;
 
 import std.algorithm : map;
 import std.array : array;
-import std.json : JSONValue, toJSON;
+import std.json : JSONValue, JSONType, toJSON;
 import std.typecons : Nullable, nullable;
 
 /**
@@ -192,7 +192,10 @@ struct StratumSetDifficulty
 
     static StratumSetDifficulty parse()(const(JSONValue)[] params)
     {
-        return StratumSetDifficulty(params[0].floating);
+        immutable difficulty = (params[0].type == JSONType.integer)
+            ? cast(double) params[0].integer
+            : params[0].floating;
+        return StratumSetDifficulty(difficulty);
     }
 }
 
@@ -205,6 +208,17 @@ unittest
     auto json = parseJSON(`{"id":1,"params":[1.234]}`);
     immutable result = StratumSetDifficulty.parse(json["params"].array);
     assert(result.difficulty.isClose(1.234));
+}
+
+///
+unittest
+{
+    import std.json : parseJSON;
+    import std.math : isClose;
+
+    auto json = parseJSON(`{"id":1,"params":[1234]}`);
+    immutable result = StratumSetDifficulty.parse(json["params"].array);
+    assert(result.difficulty.isClose(1234.0));
 }
 
 /**
