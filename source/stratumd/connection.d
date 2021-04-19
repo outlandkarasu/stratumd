@@ -36,8 +36,16 @@ Params:
 */
 void openStratumConnection(string hostname, ushort port, concurrency.Tid parent)
 {
-    scope handler = new StratumHandler(parent);
-    openTCPConnection(hostname, port, handler);
+    try
+    {
+        scope handler = new StratumHandler(parent);
+        openTCPConnection(hostname, port, handler);
+    }
+    catch (Throwable e)
+    {
+        errorf("connection error: %s", e);
+    }
+
     info("exit stratum connection.");
 }
 

@@ -51,16 +51,16 @@ final class StratumClient
         workerName_ = params.workerName;
         threadID_ = spawnLinked(&openStratumConnection, params.hostname, params.port, thisTid);
 
+        // authorize.
+        ++messageID_;
+        enforceCallAPI!(StratumAuthorize.Result)(StratumAuthorize(messageID_, params.workerName, params.password));
+
         // subscribe job.
         messageID_ = 1;
         auto subscribeResult = enforceCallAPI!(StratumSubscribe.Result)(StratumSubscribe(messageID_, params.workerName));
         jobBuilder_ = StratumJobBuilder(
             subscribeResult.extranonce1,
             subscribeResult.extranonce2Size);
-
-        // authorize.
-        ++messageID_;
-        enforceCallAPI!(StratumAuthorize.Result)(StratumAuthorize(messageID_, params.workerName, params.password));
 
         // receive first job.
         currentJob_ = currentJob_.init;
