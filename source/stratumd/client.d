@@ -41,42 +41,70 @@ Stratum client.
 final class StratumClient
 {
     /**
-    Connect stratum host.
+    Initialize by parameters.
 
     Params:
-        params = connection parameters.
+        params = client parameters.
     */
-    void connect()(auto ref const(StratumClientParams) params) scope
+    this()(auto ref const(StratumClientParams) params) @nogc nothrow pure @safe scope
     {
-        workerName_ = params.workerName;
-        threadID_ = spawnLinked(&openStratumConnection, params.hostname, params.port, thisTid);
+        this.params_ = params;
+    }
 
-        // authorize.
+    /**
+    Connect stratum host.
+    */
+    void connect() scope
+    {
+        if (threadID_ != Tid.init)
+        {
+            throw new StratumException("already connected.");
+        }
+
+        threadID_ = spawnLinked(
+            &openStratumConnection,
+            params_.hostname,
+            params_.port,
+            thisTid);
+        messageID_ = 0;
+    }
+
+    /**
+    Subscribe job.
+    */
+    void subscribe()
+    {
         ++messageID_;
-        enforceCallAPI!(StratumAuthorize.Result)(StratumAuthorize(messageID_, params.workerName, params.password));
-
-        // subscribe job.
-        messageID_ = 1;
-        auto subscribeResult = enforceCallAPI!(StratumSubscribe.Result)(StratumSubscribe(messageID_, params.workerName));
+        auto subscribeResult = enforceCallAPI!(StratumSubscribe.Result)(
+            StratumSubscribe(messageID_, params_.workerName));
         jobBuilder_ = StratumJobBuilder(
             subscribeResult.extranonce1,
             subscribeResult.extranonce2Size);
 
-        // receive first job.
+        // clear jobs.
         currentJob_ = currentJob_.init;
         jobs_.clear();
-        while(jobs_.length == 0)
-        {
-            receiveServerMethod(10000.msecs);
-        }
+    }
+
+    /**
+    Authorize worker.
+    */
+    void authorize()
+    {
+        ++messageID_;
+        enforceCallAPI!(StratumAuthorize.Result)(
+            StratumAuthorize(messageID_, params_.workerName, params_.password));
     }
 
     /**
     Receive server method.
+
+    Params:
+        timeout = timeout duration.
     */
-    void doReceiveServerMethod()
+    void doReceiveServerMethod(Duration timeout)
     {
-        while(receiveServerMethod(1.msecs)) {}
+        while(receiveServerMethod(timeout)) {}
     }
 
     /**
@@ -92,22 +120,32 @@ final class StratumClient
         return jobBuilder_.build(currentJob_, extranonce2);
     }
 
-    void submit()(auto scope ref const(StratumJobResult) jobResult)
+    /**
+    Submit job result.
+
+    Params:
+        jobResult = job result.
+    Returns:
+        true if submitted.
+    */
+    bool submit()(auto scope ref const(StratumJobResult) jobResult)
     {
         auto job = jobResult.jobID in jobs_;
         if (!job)
         {
-            return;
+            return false;
         }
 
         ++messageID_;
         callAPI!(StratumSubmit.Result)(StratumSubmit(
             messageID_,
-            workerName_,
+            params_.workerName,
             jobResult.jobID,
             format("%0*x", job.extranonce2Size * 2, jobResult.extranonce2),
             format("%08x", jobResult.ntime),
             format("%08x", jobResult.nonce)));
+
+        return true;
     }
 
     /**
@@ -120,8 +158,30 @@ final class StratumClient
         threadID_ = Tid.init;
     }
 
+    /**
+    Returns:
+        true if job notified.
+    */
+    @property bool jobExists() const @nogc nothrow pure @safe scope
+    {
+        return jobs_.length > 0;
+    }
+
+    /**
+    Check job ID is exists.
+
+    Params:
+        jobID = check job ID.
+    Returns:
+        true if job notified.
+    */
+    bool hasJob(string jobID) const @nogc nothrow pure @safe scope
+    {
+        return (jobID in jobs_) ? true : false;
+    }
+
 private:
-    string workerName_;
+    StratumClientParams params_;
     Tid threadID_;
     int messageID_;
     StratumJobBuilder jobBuilder_;
