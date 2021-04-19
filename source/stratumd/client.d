@@ -14,6 +14,7 @@ import stratumd.methods :
     StratumNotify,
     StratumSubscribe,
     StratumSubmit,
+    StratumSuggestDifficulty,
     StratumErrorResult,
     StratumReconnect,
     StratumSetDifficulty,
@@ -146,6 +147,18 @@ final class StratumClient
             format("%08x", jobResult.nonce)));
 
         return true;
+    }
+
+    /**
+    Suggest difficulty.
+
+    Params:
+        difficulty = suggest difficulty.
+    */
+    void suggestDifficulty(double difficulty)
+    {
+        ++messageID_;
+        threadID_.send(StratumSuggestDifficulty(messageID_, difficulty));
     }
 
     /**

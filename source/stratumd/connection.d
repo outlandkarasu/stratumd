@@ -20,6 +20,7 @@ import stratumd.methods :
     StratumSubscribe,
     StratumAuthorize,
     StratumSubmit,
+    StratumSuggestDifficulty,
     StratumReconnect,
     StratumNotify,
     StratumSetExtranonce,
@@ -76,6 +77,22 @@ final class StratumHandler : TCPHandler
             = (ref const(JSONValue) json) => onReceiveMessage(T.Result.parse(json));
     }
 
+    /**
+    Send method without result.
+
+    Params:
+        T = parameter type.
+        id = method call ID.
+        method = method name.
+        args = method arguments;
+    */
+    void sendMethodWithoutResult(T)(auto ref const(T) message)
+    {
+        infof("send: %s", message);
+        this.sendBuffer_ ~= message.toJSON.representation;
+        this.sendBuffer_ ~= '\n';
+    }
+
     override void onSendable(scope TCPSender sender)
     {
         if (sendBuffer_[].length > 0)
@@ -121,6 +138,7 @@ final class StratumHandler : TCPHandler
                 (StratumAuthorize m) => sendMethod(m),
                 (StratumSubscribe m) => sendMethod(m),
                 (StratumSubmit m) => sendMethod(m),
+                (StratumSuggestDifficulty m) => sendMethodWithoutResult(m),
                 (StratumReconnect m) {
                     info("close from client");
                     closeConnection(m, closer);
