@@ -6,7 +6,7 @@ import std.array : Appender, appender, array;
 import std.json : JSONValue, parseJSON, toJSON;
 import std.meta : AliasSeq;
 import std.string : representation;
-import std.experimental.logger : errorf, warningf, infof, info;
+import std.experimental.logger : errorf, warningf, infof, info, tracef, trace;
 import std.typecons : Typedef, Nullable, nullable;
 
 import concurrency = std.concurrency;
@@ -70,7 +70,7 @@ final class StratumHandler : TCPHandler
     */
     void sendMethod(T)(auto ref const(T) message)
     {
-        infof("send: %s", message);
+        tracef("send: %s", message);
         this.sendBuffer_ ~= message.toJSON.representation;
         this.sendBuffer_ ~= '\n';
         this.resultHandlers_[message.id]
@@ -88,7 +88,7 @@ final class StratumHandler : TCPHandler
     */
     void sendMethodWithoutResult(T)(auto ref const(T) message)
     {
-        infof("send: %s", message);
+        tracef("send: %s", message);
         this.sendBuffer_ ~= message.toJSON.representation;
         this.sendBuffer_ ~= '\n';
     }
@@ -114,7 +114,7 @@ final class StratumHandler : TCPHandler
             scope(exit) receiveBuffer_.truncateBuffer(slice.length - (foundSeparator + 1));
 
             scope line = cast(const(char)[]) receiveBuffer_[][0 .. foundSeparator];
-            infof("receive: %s", line);
+            tracef("receive: %s", line);
             parseJSONMessage(line, closer);
         }
     }
