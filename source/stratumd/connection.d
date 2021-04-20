@@ -70,8 +70,9 @@ final class StratumHandler : TCPHandler
     */
     void sendMethod(T)(auto ref const(T) message)
     {
-        tracef("send: %s", message);
-        this.sendBuffer_ ~= message.toJSON.representation;
+        auto sendBytes = message.toJSON.representation;
+        tracef("send: %s", cast(const(char)[]) sendBytes);
+        this.sendBuffer_ ~= sendBytes;
         this.sendBuffer_ ~= '\n';
         this.resultHandlers_[message.id]
             = (ref const(JSONValue) json) => onReceiveMessage(T.Result.parse(json));
