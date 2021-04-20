@@ -222,7 +222,7 @@ private:
 
     private void onJSONResultError(const(JSONValue) json)
     {
-        errorf("result error");
+        errorf("result error: %s", json);
         onReceiveMessage(StratumErrorResult.parse(json));
     }
 
