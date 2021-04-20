@@ -84,7 +84,7 @@ struct StratumJobBuilder
         auto header =
             notify.blockVersion
             ~ notify.prevHash
-            ~ merkleRoot.toHexString!(LetterCase.lower, Order.decreasing)
+            ~ merkleRoot.toHexString!(LetterCase.lower, Order.increasing)
             ~ notify.ntime
             ~ notify.nbits
             ~ "00000000"; // nonce
@@ -99,18 +99,38 @@ struct StratumJobBuilder
 ///
 unittest
 {
+    import std.stdio : writefln;
+    string hexReverse(string value) nothrow pure @safe
+    {
+        return value.hexToBytes.toHexString!(LetterCase.lower, Order.decreasing);
+    }
 
-    auto builder = StratumJobBuilder("08000002", 4, 1);
+    // example block: 00000000000000001e8d6829a8a21adc5d38d0a473b144b6765798e61f98bd1d (125552)
+    string tx1 = hexReverse("60c25dda8d41f8d3d7d5c6249e2ea1b05a25bf7ae2ad6d904b512b31f997e1a1");
+    string tx2 = hexReverse("01f314cdd8566d3e5dbdd97de2d9fbfbfd6873e916a00d48758282cbb81a45b9");
+    string tx3 = hexReverse("b519286a1040da6ad83c783eb2872659eaf57b1bec088e614776ffe7dc8f6d01");
+    string tx23 = sha256Of(sha256Of(tx2.hexToBytes ~ tx3.hexToBytes)).toHexString!(LetterCase.lower, Order.increasing).idup;
+    string expectedHeaderAndNonce = "0100000081cd02ab7e569e8bcd9317e2fe99f2de44d49ab2b8851ba4a308000000000000e320b6c2fffc8d750423db8b1eb942ae710e951ed797f7affc8892b0f1fc122bc7f5d74df2b9441a42a14695";
+    string extranonce1 = "2a010000";
+    immutable extranonce2 = 0x434104;
+
+    // extranonce1: "2a010000"
+    // extranonce2: "00434104"
+    auto builder = StratumJobBuilder(extranonce1, 4, 1);
     auto job = builder.build(StratumNotify(
         "job-id",
-        "81cd02ab7e569e8bcd9317e2fe99f2de44d49ab2b8851ba4a308000000000000",
-        "",
-        "",
-        [],
-        "01000000",
-        "f2b9441a",
-        "c7f5d74d",
-        false), 0);
+        hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81"),
+        "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415",
+        "d879d5ef8b70cf0a33925101b64429ad7eb370da8ad0b05c9cd60922c363a1eada85bcc2843b7378e226735048786c790b30b28438d22acfade24ef047b5f865ac00000000",
+        [ tx1, tx23, ],
+        hexReverse("00000001"),
+        hexReverse("1a44b9f2"),
+        hexReverse("4dd7f5c7"),
+        false), extranonce2);
+    assert(job.extranonce2 == extranonce2);
+    assert(job.header[0 .. $ - 8] == expectedHeaderAndNonce[0 .. $ - 8]);
+    assert(job.header[$ - 8 .. $] == "00000000");
+    assert(job.target == [0, 0, 0, 0, 0, 0, 0xFFFFFFFF, 0]);
 }
 
 immutable(ubyte)[] hexToBytes(scope string hex) nothrow pure @safe
