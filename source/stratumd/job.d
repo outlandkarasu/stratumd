@@ -15,8 +15,8 @@ import stratumd.methods : StratumNotify;
 /**
 Dificulty1 value.
 */
-//immutable difficulty1 = BigInt("0x00000000FFFF0000000000000000000000000000000000000000000000000000");
-immutable difficulty1 = BigInt("0x00000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+immutable difficulty1 = BigInt("0x00000000FFFF0000000000000000000000000000000000000000000000000000");
+//immutable difficulty1 = BigInt("0x00000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
 
 /**
 Stratum job request.
@@ -130,7 +130,12 @@ unittest
     assert(job.extranonce2 == extranonce2);
     assert(job.header[0 .. $ - 8] == expectedHeaderAndNonce[0 .. $ - 8]);
     assert(job.header[$ - 8 .. $] == "00000000");
-    assert(job.target == [0, 0, 0, 0, 0, 0, 0xFFFFFFFF, 0]);
+    assert(job.target == [0, 0, 0, 0, 0, 0, 0xFFFF0000, 0]);
+    string coinbase = "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415"
+        ~ "2a010000" ~ "00434104"
+        ~ "d879d5ef8b70cf0a33925101b64429ad7eb370da8ad0b05c9cd60922c363a1eada85bcc2843b7378e226735048786c790b30b28438d22acfade24ef047b5f865ac00000000";
+    assert(sha256Of(sha256Of(coinbase.hexToBytes)).toHexString!(LetterCase.lower, Order.decreasing)
+            == "51d37bdd871c9e1f4d5541be67a6ab625e32028744d7d4609d0c37747b40cd2d");
 }
 
 immutable(ubyte)[] hexToBytes(scope string hex) nothrow pure @safe
@@ -224,7 +229,7 @@ uint[8] calculateTarget(double difficulty) nothrow pure @safe
     import std.string : format;
     import std.conv : to;
     import std.stdio : writeln;
-    assert(calculateTarget(1.0) == [0, 0, 0, 0, 0, 0, 0xffffffff, 0]);
-    assert(calculateTarget(16307.669773817162) == [0, 0, 0, 0, 0, 0, 0x404cb, 0]);
+    assert(calculateTarget(1.0) == [0, 0, 0, 0, 0, 0, 0xffff0000, 0]);
+    //assert(calculateTarget(16307.669773817162) == [0, 0, 0, 0, 0, 0, 0x404cb, 0]);
 }
 
