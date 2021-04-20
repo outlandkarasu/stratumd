@@ -88,8 +88,9 @@ final class StratumHandler : TCPHandler
     */
     void sendMethodWithoutResult(T)(auto ref const(T) message)
     {
-        tracef("send: %s", message);
-        this.sendBuffer_ ~= message.toJSON.representation;
+        auto sendBytes = message.toJSON.representation;
+        tracef("send: %s", cast(const(char)[]) sendBytes);
+        this.sendBuffer_ ~= sendBytes;
         this.sendBuffer_ ~= '\n';
     }
 
