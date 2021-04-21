@@ -1,10 +1,12 @@
 module stratumd.job;
 
 import std.string : indexOf;
+import std.algorithm : joiner;
+import std.range : chunks, enumerate;
 import std.format : format;
 import std.typecons : No;
 import std.ascii : lowerHexDigits, LetterCase;
-import std.array : appender;
+import std.array : appender, array;
 import std.digest : toHexString, Order;
 import std.digest.sha : sha256Of;
 import std.bigint : BigInt, toHex;
@@ -81,16 +83,17 @@ struct StratumJobBuilder
             merkleRoot = sha256Of(sha256Of(buffer[]));
         }
 
-        auto header =
-            notify.blockVersion
-            ~ notify.prevHash
-            ~ merkleRoot.toHexString!(LetterCase.lower, Order.increasing)
-            ~ notify.ntime
-            ~ notify.nbits
-            ~ "00000000"; // nonce
+        auto header = appender!string();
+        header ~= notify.blockVersion.hexReverse;
+        header ~= notify.prevHash;
+        header ~= merkleRoot.toHexString!(LetterCase.lower, Order.increasing)[];
+        header ~= notify.ntime.hexReverse;
+        header ~= notify.nbits.hexReverse;
+        header ~= "00000000"; // nonce
+        
         return StratumJob(
             notify.jobID,
-            header.idup,
+            header[],
             calculateTarget(difficulty),
             extranonce2);
     }
@@ -100,10 +103,7 @@ struct StratumJobBuilder
 unittest
 {
     import std.stdio : writefln;
-    string hexReverse(string value) nothrow pure @safe
-    {
-        return value.hexToBytes.toHexString!(LetterCase.lower, Order.decreasing);
-    }
+    import std.conv : to;
 
     // example block: 00000000000000001e8d6829a8a21adc5d38d0a473b144b6765798e61f98bd1d (125552)
     string tx1 = hexReverse("60c25dda8d41f8d3d7d5c6249e2ea1b05a25bf7ae2ad6d904b512b31f997e1a1");
@@ -123,9 +123,9 @@ unittest
         "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415",
         "d879d5ef8b70cf0a33925101b64429ad7eb370da8ad0b05c9cd60922c363a1eada85bcc2843b7378e226735048786c790b30b28438d22acfade24ef047b5f865ac00000000",
         [ tx1, tx23, ],
-        hexReverse("00000001"),
-        hexReverse("1a44b9f2"),
-        hexReverse("4dd7f5c7"),
+        "00000001",
+        "1a44b9f2",
+        "4dd7f5c7",
         false), extranonce2);
     assert(job.extranonce2 == extranonce2);
     assert(job.header[0 .. $ - 8] == expectedHeaderAndNonce[0 .. $ - 8]);
@@ -198,6 +198,27 @@ nothrow pure @safe unittest
     assert("01020304".hexToBytesReverse == [ubyte(0x04), 0x03, 0x02, 0x01]);
     assert("12345678abcdef".hexToBytesReverse == [ubyte(0xef), 0xcd, 0xab, 0x78, 0x56, 0x34, 0x12]);
     assert("ABCDEF12345678".hexToBytesReverse == [ubyte(0x78), 0x56, 0x34, 0x12, 0xef, 0xcd, 0xab]);
+}
+
+string hexReverse(scope const(char)[] value) nothrow pure @safe
+    in (value.length % 2 == 0)
+{
+    auto buffer = new char[](value.length);
+    for (size_t i = 0; i < value.length; i += 2)
+    {
+        buffer[$ - 2 - i] = value[i];
+        buffer[$ - 1 - i] = value[i + 1];
+    }
+    return (() @trusted => assumeUnique(buffer))();
+}
+
+///
+nothrow pure @safe unittest
+{
+    assert("".hexReverse == "");
+    assert("12".hexReverse == "12");
+    assert("1234".hexReverse == "3412");
+    assert("123456".hexReverse == "563412");
 }
 
 uint[8] calculateTarget(double difficulty) nothrow pure @safe
