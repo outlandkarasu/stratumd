@@ -1,6 +1,7 @@
 module stratumd.client;
 
 import core.time : msecs, Duration;
+import core.bitop : bswap;
 import std.format : format;
 import std.conv : to;
 import std.concurrency :
@@ -143,8 +144,8 @@ final class StratumClient
             params_.workerName,
             jobResult.jobID,
             format("%0*x", job.extranonce2Size * 2, jobResult.extranonce2),
-            format("%08x", jobResult.ntime),
-            format("%08x", jobResult.nonce)));
+            format("%08x", bswap(jobResult.ntime)),
+            format("%08x", bswap(jobResult.nonce))));
 
         return true;
     }
