@@ -99,9 +99,8 @@ final class StratumHandler : TCPHandler
     {
         if (sendBuffer_[].length > 0)
         {
-            const(void)[] data = sendBuffer_[];
-            sender.send(data);
-            sendBuffer_.truncateBuffer(data.length);
+            const rest = sender.send(sendBuffer_[]);
+            sendBuffer_.truncateBuffer(rest.length);
         }
     }
 

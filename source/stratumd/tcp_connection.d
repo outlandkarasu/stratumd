@@ -25,9 +25,11 @@ interface TCPSender : TCPCloser
     Send data.
 
     Params:
-        data = send data. After send, truncated sent length.
+        data = send data.
+    Returns:
+        rest data.
     */
-    void send(scope ref const(void)[] data);
+    const(void)[] send(return scope const(void)[] data);
 }
 
 /**
@@ -73,16 +75,17 @@ void openTCPConnection(scope const(char)[] hostname, ushort port, scope TCPHandl
 
     scope operations = new class TCPSender
     {
-        void send(scope ref const(void)[] data)
+        const(void)[] send(return scope const(void)[] data)
         {
             immutable sent = socket.send(data);
             if (sent == Socket.ERROR)
             {
                 handler.onError(socket.getErrorText(), this);
+                return [];
             }
             else
             {
-                data = data[sent .. $];
+                return data[sent .. $];
             }
         }
 
