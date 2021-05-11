@@ -57,7 +57,7 @@ struct StratumSubscribe
         string extranonce1;
         int extranonce2Size;
 
-        static Result parse()(auto ref const(JSONValue) json)
+        static Result parse()(auto scope ref const(JSONValue) json)
         {
             immutable id = cast(int) json["id"].integer;
             auto result = json["result"].array;
@@ -165,7 +165,7 @@ struct StratumNotify
     string ntime;
     bool cleanJobs;
 
-    static StratumNotify parse()(const(JSONValue)[] params)
+    static StratumNotify parse()(scope const(JSONValue)[] params)
     {
         auto markleBranchValues = params[4].array;
         auto markleBranch = new shared string[](markleBranchValues.length);
@@ -217,7 +217,7 @@ struct StratumSetDifficulty
 
     double difficulty;
 
-    static StratumSetDifficulty parse()(const(JSONValue)[] params)
+    static StratumSetDifficulty parse()(scope const(JSONValue)[] params)
     {
         immutable difficulty = (params[0].type == JSONType.integer)
             ? cast(double) params[0].integer
@@ -258,7 +258,7 @@ struct StratumSetExtranonce
     string extranonce1;
     int extranonce2Size;
 
-    static StratumSetExtranonce parse()(const(JSONValue)[] params)
+    static StratumSetExtranonce parse()(scope const(JSONValue)[] params)
     {
         return StratumSetExtranonce(params[0].str, cast(int) params[1].integer);
     }
@@ -289,7 +289,7 @@ struct StratumReconnect
         int id;
     }
 
-    static StratumReconnect parse()(const(JSONValue)[] params)
+    static StratumReconnect parse()(scope const(JSONValue)[] params)
     {
         return StratumReconnect.init;
     }
@@ -303,7 +303,7 @@ struct StratumBooleanResult
     int id;
     bool result;
 
-    static StratumBooleanResult parse()(auto ref const(JSONValue) json)
+    static StratumBooleanResult parse()(auto scope ref const(JSONValue) json)
     {
         immutable id = cast(int) json["id"].integer;
         immutable result = json["result"].boolean;
@@ -330,7 +330,7 @@ struct StratumErrorResult
     int id;
     string error;
 
-    static StratumErrorResult parse()(auto ref const(JSONValue) json)
+    static StratumErrorResult parse()(auto scope ref const(JSONValue) json)
     {
         immutable id = cast(int) json["id"].integer;
         return StratumErrorResult(id, json["error"].toJSON);
