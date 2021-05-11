@@ -64,6 +64,8 @@ Params:
 void openRPCConnection(string hostname, ushort port, scope RPCHandler handler)
     in (handler)
 {
+    scope rpcStack = new RPCStack(handler);
+    openTCPConnection(hostname, port, rpcStack);
 }
 
 private:
