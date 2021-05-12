@@ -12,13 +12,39 @@ import std.digest.sha : sha256Of;
 import std.bigint : BigInt, toHex;
 import std.exception : assumeUnique;
 
-import stratumd.methods : StratumNotify;
-
 /**
 Dificulty1 value.
 */
 immutable difficulty1 = BigInt("0x00000000FFFF0000000000000000000000000000000000000000000000000000");
 //immutable difficulty1 = BigInt("0x00000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+
+/**
+Job notification.
+*/
+struct JobNotification
+{
+    string jobID;
+    string prevHash;
+    string coinb1;
+    string coinb2;
+    string[] merkleBranch;
+    string blockVersion;
+    string nbits;
+    string ntime;
+    bool cleanJobs;
+}
+
+/**
+Job result.
+*/
+struct JobResult 
+{
+    string workerName;
+    string jobID;
+    string extraNonce2;
+    string ntime;
+    string nonce;
+}
 
 /**
 Stratum job request.
@@ -60,7 +86,7 @@ struct StratumJobBuilder
     int extranonce2Size;
     double difficulty = 1.0;
 
-    StratumJob build()(auto scope ref const(StratumNotify) notify, uint extranonce2) pure @safe const
+    StratumJob build()(auto scope ref const(JobNotification) notify, uint extranonce2) pure @safe const
     {
         auto buffer = appender!(ubyte[])();
         buffer ~= notify.coinb1.hexToBytes;
@@ -117,7 +143,7 @@ unittest
     // extranonce1: "2a010000"
     // extranonce2: "00434104"
     auto builder = StratumJobBuilder(extranonce1, 4, 1);
-    auto job = builder.build(StratumNotify(
+    auto job = builder.build(JobNotification(
         "job-id",
         hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81"),
         "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415",

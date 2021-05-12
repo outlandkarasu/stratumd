@@ -1,265 +1,314 @@
 module stratumd.connection;
 
-import core.time : msecs;
-import std.algorithm : countUntil, copy, map;
-import std.array : Appender, appender, array;
-import std.json : JSONValue, parseJSON, toJSON;
-import std.meta : AliasSeq;
-import std.string : representation;
-import std.experimental.logger : errorf, warningf, infof, info, tracef, trace;
-import std.typecons : Typedef, Nullable, nullable;
+import std.algorithm : map, filter;
+import std.array : array;
+import std.experimental.logger : tracef, warningf, errorf;
+import std.exception : assumeWontThrow;
+import std.json : JSONValue;
 
-import concurrency = std.concurrency;
-
-import stratumd.tcp_connection :
-    TCPHandler,
-    TCPSender,
-    TCPCloser,
-    openTCPConnection;
-import stratumd.methods :
-    StratumSubscribe,
-    StratumAuthorize,
-    StratumSubmit,
-    StratumSuggestDifficulty,
-    StratumReconnect,
-    StratumNotify,
-    StratumSetExtranonce,
-    StratumSetDifficulty,
-    StratumErrorResult;
+import stratumd.tcp_connection : TCPCloser;
+import stratumd.rpc_connection :
+    RPCSender,
+    RPCHandler,
+    openRPCConnection;
+import stratumd.job : JobNotification, JobResult;
 
 /**
-Open stratum connection.
-
-Params:
-    hostname = stratum hostname.
-    port = stratum host port number.
-    parent = parent thread ID.
+Stratum request callback.
 */
-void openStratumConnection(string hostname, ushort port, concurrency.Tid parent)
+struct StratumCallback
 {
-    try
+    /**
+    On success request.
+    */
+    void delegate(scope StratumSender sender) onSuccess;
+
+    /**
+    On error request.
+    */
+    void delegate(scope StratumSender sender) onError;
+
+    /**
+    On cancel request.
+    */
+    void delegate() onCancel;
+    
+private:
+
+    void onSuccessIfExists(scope StratumSender sender)
     {
-        scope handler = new StratumHandler(parent);
-        openTCPConnection(hostname, port, handler);
-    }
-    catch (Throwable e)
-    {
-        errorf("connection error: %s", e);
+        if (onSuccess)
+        {
+            onSuccess(sender);
+        }
     }
 
-    info("exit stratum connection.");
+    void onErrorIfExists(scope StratumSender sender)
+    {
+        if (onError)
+        {
+            onError(sender);
+        }
+    }
+
+    void onCancelIfExists()
+    {
+        if (onCancel)
+        {
+            onCancel();
+        }
+    }
+}
+
+/**
+Stratum sender.
+*/
+interface StratumSender : TCPCloser
+{
+    /**
+    Send authorize request.
+    */
+    void authorize(string username, string password, StratumCallback callback);
+
+    /**
+    Send subscribe request.
+    */
+    void subscribe(string userAgent, StratumCallback callback);
+
+    /**
+    Submit job.
+    */
+    void submit(scope ref const(JobResult) jobResult, StratumCallback callback);
+}
+
+/**
+Stratum handler.
+*/
+interface StratumHandler
+{
+    /**
+    Callback on set difficulty.
+    */
+    void onSetDifficulty(double difficulty);
+
+    /**
+    Callback on extra nonce.
+    */
+    void onSetExtranonce(string extranonce1, int extranonce2Size);
+
+    /**
+    Callback on notify.
+    */
+    void onNotify(scope ref const(JobNotification) jobNotification);
+
+    /**
+    Callback on error.
+    */
+    void onError(scope string errorText, scope StratumSender sender);
+
+    /**
+    Callback on idle time.
+    */
+    void onIdle(scope StratumSender sender);
+}
+
+/**
+Open Stratum connection.
+*/
+void openStratumConnection(string hostname, ushort port, scope StratumHandler handler)
+{
+    scope stratumStack = new StratumStack(handler);
+    openRPCConnection(hostname, port, stratumStack);
 }
 
 private:
 
-final class StratumHandler : TCPHandler
+final class StratumStack : RPCHandler
 {
-    this(concurrency.Tid threadID) @nogc nothrow pure @safe scope
+    this(StratumHandler handler) @nogc nothrow pure @safe scope
+        in (handler)
     {
-        this.threadID_ = threadID;
+        this.handler_ = handler;
     }
 
-    /**
-    Send method.
-
-    Params:
-        T = parameter type.
-        id = method call ID.
-        method = method name.
-        args = method arguments;
-    */
-    void sendMethod(T)(auto ref const(T) message)
+    ~this() nothrow scope
     {
-        auto sendBytes = message.toJSON.representation;
-        tracef("send: %s", cast(const(char)[]) sendBytes);
-        this.sendBuffer_ ~= sendBytes;
-        this.sendBuffer_ ~= '\n';
-        this.resultHandlers_[message.id]
-            = (ref const(JSONValue) json) => onReceiveMessage(T.Result.parse(json));
-    }
-
-    /**
-    Send method without result.
-
-    Params:
-        T = parameter type.
-        id = method call ID.
-        method = method name.
-        args = method arguments;
-    */
-    void sendMethodWithoutResult(T)(auto ref const(T) message)
-    {
-        auto sendBytes = message.toJSON.representation;
-        tracef("send: %s", cast(const(char)[]) sendBytes);
-        this.sendBuffer_ ~= sendBytes;
-        this.sendBuffer_ ~= '\n';
-    }
-
-    override void onSendable(scope TCPSender sender)
-    {
-        if (sendBuffer_[].length > 0)
+        foreach (callback; callbacks_.byValue)
         {
-            const rest = sender.send(sendBuffer_[]);
-            sendBuffer_.truncateBuffer(rest.length);
+            try
+            {
+                callback.onCancelIfExists();
+            }
+            catch (Throwable e)
+            {
+                assumeWontThrow(errorf("callback error: %s", e));
+            }
         }
     }
 
-    override void onReceive(scope const(void)[] data, scope TCPCloser closer)
+    override void onReceiveMessage(string method, scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        auto receiveBytes = cast(const(ubyte)[]) data;
-        receiveBuffer_ ~= receiveBytes;
-        scope slice = receiveBuffer_[];
-        immutable foundSeparator = slice.countUntil(JSON_SEPARATOR);
-        if (foundSeparator >= 0)
+        switch (method)
         {
-            scope(exit) receiveBuffer_.truncateBuffer(slice.length - (foundSeparator + 1));
-
-            scope line = cast(const(char)[]) receiveBuffer_[][0 .. foundSeparator];
-            tracef("receive: %s", line);
-            parseJSONMessage(line, closer);
+            case "mining.set_difficulty":
+                onReceiveSetDifficulty(params, sender);
+                break;
+            case "mining.set_extranonce":
+                onReceiveSetExtranonce(params, sender);
+                break;
+            case "mining.notify":
+                onReceiveNotify(params, sender);
+                break;
+            case "client.reconnect":
+                onReceiveReconnect(sender);
+                break;
+            default:
+                warningf("unknown method: %s (%s)", method, params);
+                break;
         }
     }
 
-    override void onError(scope string errorText, scope TCPCloser closer)
+    override void onResponseMessage(int id, scope ref const(JSONValue) result, scope RPCSender sender)
     {
-        errorf("TCP connection error: %s", errorText);
-    }
-
-    override void onIdle(scope TCPCloser closer)
-    {
-        if (terminated_)
+        auto callback = id in callbacks_;
+        if (!callback)
         {
             return;
         }
 
-        try
+        callbacks_.remove(id);
+
+        scope stratumSender = new Sender(sender);
+        callback.onSuccessIfExists(stratumSender);
+    }
+
+    override void onErrorResponseMessage(int id, scope ref const(JSONValue) error, scope RPCSender sender)
+    {
+        auto callback = id in callbacks_;
+        if (!callback)
         {
-            concurrency.receiveTimeout(
-                1.msecs,
-                (StratumAuthorize m) => sendMethod(m),
-                (StratumSubscribe m) => sendMethod(m),
-                (StratumSubmit m) => sendMethod(m),
-                (StratumSuggestDifficulty m) => sendMethodWithoutResult(m),
-                (StratumReconnect m) {
-                    info("close from client");
-                    closeConnection(m, closer);
-                });
+            return;
         }
-        catch (concurrency.OwnerTerminated e)
-        {
-            infof("owner terminated: %s", e.message);
-            terminated_ = true;
-            closer.close();
-        }
+
+        callbacks_.remove(id);
+
+        scope stratumSender = new Sender(sender);
+        callback.onErrorIfExists(stratumSender);
+    }
+
+    override void onError(scope string errorText, scope RPCSender sender)
+    {
+        scope stratumSender = new Sender(sender);
+        handler_.onError(errorText, stratumSender);
+    }
+
+    override void onIdle(scope RPCSender sender)
+    {
+        scope stratumSender = new Sender(sender);
+        handler_.onIdle(stratumSender);
     }
 
 private:
-    enum JSON_SEPARATOR = '\n';
+    StratumHandler handler_;
+    int currentID_;
+    StratumCallback[int] callbacks_;
 
-    alias ResultHandler = void delegate(ref const(JSONValue) json);
-
-    Appender!(ubyte[]) sendBuffer_;
-    Appender!(ubyte[]) receiveBuffer_;
-    ResultHandler[int] resultHandlers_;
-    concurrency.Tid threadID_;
-    bool terminated_;
-
-    void parseJSONMessage(scope const(char)[] data, scope TCPCloser closer)
+    final class Sender : StratumSender
     {
-        const json = parseJSON(data);
-        auto method = "method" in json;
-        if (method)
+        this(RPCSender rpcSender) @nogc nothrow pure @safe scope
+            in (rpcSender)
         {
-            onReceiveMethod(method.str, json, closer);
-            return;
+            this.rpcSender_ = rpcSender;
         }
 
-        auto result = "result" in json;
-        if (result)
+        override void authorize(string username, string password, StratumCallback callback)
         {
-            immutable id = cast(int) json["id"].integer;
-            auto handler = id in resultHandlers_;
-            resultHandlers_.remove(id);
-
-            auto error = "error" in json;
-            if (error && !error.isNull)
-            {
-                onJSONResultError(json);
-                return;
-            }
-
-            if(handler)
-            {
-                (*handler)(json);
-                return;
-            }
+            sendAuthorize(username, password, callback, rpcSender_);
         }
 
-        // unknown.
-        warningf("unrecognized message: %s", data);
-    }
-
-    private void onReceiveMethod(scope string method, const(JSONValue) json, scope TCPCloser closer)
-    {
-        infof("onReceiveMethod: %s", method);
-
-        auto params = json["params"].array;
-        if (method == StratumReconnect.method)
+        override void subscribe(string userAgent, StratumCallback callback)
         {
-            info("reconnect from host");
-            closeConnection(StratumReconnect.parse(params), closer);
-            return;
+            sendSubscribe(userAgent, callback, rpcSender_);
         }
 
-        static foreach (M; AliasSeq!(StratumNotify, StratumSetDifficulty, StratumSetExtranonce))
+        override void submit(scope ref const(JobResult) jobResult, StratumCallback callback)
         {
-            if (method == M.method)
-            {
-                onReceiveMessage(M.parse(params));
-                return;
-            }
+            sendSubmit(jobResult, callback, rpcSender_);
         }
+
+        override void close()
+        {
+            rpcSender_.close();
+        }
+
+    private:
+        RPCSender rpcSender_;
     }
 
-    private void onJSONResultError(const(JSONValue) json)
+    void sendAuthorize(string username, string password, StratumCallback callback, scope RPCSender sender)
     {
-        errorf("result error: %s", json);
-        onReceiveMessage(StratumErrorResult.parse(json));
+        auto params = [JSONValue(username), JSONValue(password)];
+        sendMessage("mining.authorize", params, callback, sender);
     }
 
-    private void onReceiveMessage(T)(T message)
+    void sendSubscribe(string userAgent, StratumCallback callback, scope RPCSender sender)
     {
-        concurrency.send(threadID_, message);
+        auto params = [JSONValue(userAgent)];
+        sendMessage("mining.submit", params, callback, sender);
     }
 
-    private void closeConnection()(auto scope ref const(StratumReconnect) message, scope TCPCloser closer)
+    void sendSubmit(scope ref const(JobResult) jobResult, StratumCallback callback, scope RPCSender sender)
     {
-        infof("close connection: %s", message);
-        closer.close();
-        onReceiveMessage(StratumReconnect.Result(message.id));
+        auto params = [
+            JSONValue(jobResult.workerName),
+            JSONValue(jobResult.jobID),
+            JSONValue(jobResult.extraNonce2),
+            JSONValue(jobResult.ntime),
+            JSONValue(jobResult.nonce),
+        ];
+        sendMessage("mining.submit", params, callback, sender);
     }
-}
 
-void truncateBuffer(E)(ref Appender!E buffer, size_t restSize)
-{
-    copy(buffer[][$ - restSize .. $], buffer[][0 .. restSize]);
-    buffer.shrinkTo(restSize);
-}
+    void sendMessage(string method, scope const(JSONValue)[] params, StratumCallback callback, scope RPCSender sender)
+    {
+        immutable currentID = currentID_;
+        ++currentID_;
 
-///
-unittest
-{
-    import std.array : appender;
-    auto buffer = appender!(char[])();
-    buffer ~= "test";
+        scope(failure) callback.onCancelIfExists();
+        sender.send(currentID, method, params);
+        callbacks_[currentID] = callback;
+    }
 
-    buffer.truncateBuffer(3);
-    assert(buffer[] == "est");
+    void onReceiveNotify(scope const(JSONValue)[] params, scope RPCSender sender)
+    {
+        auto notification = JobNotification(
+            params[0].str,
+            params[1].str,
+            params[2].str,
+            params[3].str,
+            params[4].array.map!((e) => e.str).array,
+            params[5].str,
+            params[6].str,
+            params[7].str,
+            params[8].boolean);
+        handler_.onNotify(notification);
+    }
 
-    buffer.truncateBuffer(2);
-    assert(buffer[] == "st");
+    void onReceiveSetExtranonce(scope const(JSONValue)[] params, scope RPCSender sender)
+    {
+        handler_.onSetExtranonce(
+            params[0].str, cast(int) params[1].integer);
+    }
 
-    buffer.truncateBuffer(0);
-    assert(buffer[] == "");
+    void onReceiveSetDifficulty(scope const(JSONValue)[] params, scope RPCSender sender)
+    {
+        handler_.onSetDifficulty(params[0].floating);
+    }
+
+    void onReceiveReconnect(scope RPCSender sender)
+    {
+        tracef("reconnect from host");
+        sender.close();
+    }
 }
 
