@@ -50,11 +50,10 @@ struct JobSubmit
     */
     static JobSubmit fromResult()(
         auto scope ref const(JobResult) result,
-        string workerName, 
         uint extranonce2Size) nothrow pure @safe
     {
         JobSubmit submit = {
-            workerName: workerName,
+            workerName: result.workerName,
             jobID: result.jobID,
             ntime: assumeWontThrow(format("%08x", result.ntime)),
             nonce: assumeWontThrow(format("%08x", result.nonce)),
@@ -69,11 +68,11 @@ nothrow pure @safe unittest
 {
     immutable submit = JobSubmit.fromResult(
         JobResult(
+            "test-worker",
             "test-job-id",
             0x3456789,
             0xABCDEF,
             0x1234),
-        "test-worker",
         3);
     assert(submit.workerName == "test-worker");
     assert(submit.jobID == "test-job-id");
@@ -97,6 +96,7 @@ Stratum job result.
 */
 struct JobResult
 {
+    string workerName;
     string jobID;
     uint ntime;
     uint nonce;

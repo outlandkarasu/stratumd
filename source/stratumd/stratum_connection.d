@@ -146,6 +146,11 @@ final class StratumStack : RPCHandler
 
         sentMethods_.remove(id);
 
+        if (*method == StratumMethod.subscribe)
+        {
+            updateExtranonce(result[1].str, cast(uint) result[2].uinteger);
+        }
+
         scope stratumSender = new Sender(sender);
         handler_.onResponse(id, *method, stratumSender);
     }
@@ -219,7 +224,7 @@ private:
                 return typeof(return).init;
             }
 
-            auto jobSubmit = JobSubmit.fromResult(jobResult, "", jobInfo.extranonce2Size);
+            auto jobSubmit = JobSubmit.fromResult(jobResult, jobInfo.extranonce2Size);
             auto params = [
                 JSONValue(jobSubmit.workerName),
                 JSONValue(jobSubmit.jobID),
@@ -288,10 +293,7 @@ private:
 
     void onReceiveSetExtranonce(scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        // reset extranonce and clean current job.
-        jobBuilder_.extranonce1 = params[0].str;
-        jobBuilder_.extranonce2 = 0;
-        jobBuilder_.extranonce2Size = cast(uint) params[1].integer;
+        updateExtranonce(params[0].str, cast(uint) params[1].uinteger);
     }
 
     void onReceiveSetDifficulty(scope const(JSONValue)[] params, scope RPCSender sender)
@@ -303,6 +305,14 @@ private:
     {
         tracef("reconnect from host");
         sender.close();
+    }
+
+    void updateExtranonce(string extranonce1, uint extranonce2Size)
+    {
+        tracef("update extra nonce: %s, %s", extranonce1, extranonce2Size);
+        jobBuilder_.extranonce1 = extranonce1;
+        jobBuilder_.extranonce2 = 0;
+        jobBuilder_.extranonce2Size = extranonce2Size;
     }
 
     void notifyCurrentJob()
