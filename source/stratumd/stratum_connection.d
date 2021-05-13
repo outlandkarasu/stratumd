@@ -1,4 +1,4 @@
-module stratumd.connection;
+module stratumd.stratum_connection;
 
 import std.string : format;
 import std.algorithm : map, filter;
