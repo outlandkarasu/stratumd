@@ -55,6 +55,11 @@ interface StratumSender : TCPCloser
     Submit job if alived.
     */
     Nullable!MessageID submit(scope ref const(JobResult) jobResult);
+
+    /**
+    Increment extranonce2.
+    */
+    void incrementExtranonce2();
 }
 
 /**
@@ -239,11 +244,16 @@ private:
             // notify next extranonce2 job.
             if (currentJob_.jobID == jobResult.jobID)
             {
-                ++jobBuilder_.extranonce2;
-                notifyCurrentJob(this);
+                incrementExtranonce2();
             }
 
             return result;
+        }
+
+        override void incrementExtranonce2()
+        {
+            ++jobBuilder_.extranonce2;
+            notifyCurrentJob(this);
         }
 
         override void close()
