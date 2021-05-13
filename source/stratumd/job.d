@@ -90,7 +90,6 @@ struct Job
     string jobID;
     string header;
     uint[8] target;
-    uint extranonce2;
 }
 
 /**
@@ -110,10 +109,11 @@ Job builder.
 struct JobBuilder
 {
     string extranonce1;
-    int extranonce2Size;
+    uint extranonce2;
+    uint extranonce2Size;
     double difficulty = 1.0;
 
-    Job build()(auto scope ref const(JobNotification) notify, uint extranonce2) pure @safe const
+    Job build()(auto scope ref const(JobNotification) notify) pure @safe const
     {
         auto buffer = appender!(ubyte[])();
         buffer ~= notify.coinb1.hexToBytes;
@@ -147,8 +147,7 @@ struct JobBuilder
         return Job(
             notify.jobID,
             header[],
-            calculateTarget(difficulty),
-            extranonce2);
+            calculateTarget(difficulty));
     }
 }
 
@@ -169,7 +168,7 @@ unittest
 
     // extranonce1: "2a010000"
     // extranonce2: "00434104"
-    auto builder = JobBuilder(extranonce1, 4, 1);
+    auto builder = JobBuilder(extranonce1, extranonce2, 4, 1);
     auto job = builder.build(JobNotification(
         "job-id",
         hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81"),
@@ -179,8 +178,7 @@ unittest
         "00000001",
         "1a44b9f2",
         "4dd7f5c7",
-        false), extranonce2);
-    assert(job.extranonce2 == extranonce2);
+        false));
     assert(job.header[0 .. $ - 8] == expectedHeaderAndNonce[0 .. $ - 8]);
     assert(job.header[$ - 8 .. $] == "00000000");
     assert(job.target == [0, 0, 0, 0, 0, 0, 0xFFFF0000, 0]);
