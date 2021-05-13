@@ -10,7 +10,7 @@ import std.array : appender, array;
 import std.digest : toHexString, Order;
 import std.digest.sha : sha256Of;
 import std.bigint : BigInt, toHex;
-import std.exception : assumeUnique;
+import std.exception : assumeUnique, assumeWontThrow;
 
 /**
 Dificulty1 value.
@@ -35,21 +35,57 @@ struct JobNotification
 }
 
 /**
-Job result.
+Job submit content.
 */
-struct JobResult 
+struct JobSubmit
 {
     string workerName;
     string jobID;
-    string extraNonce2;
     string ntime;
     string nonce;
+    string extranonce2;
+
+    /**
+    Construct from JobResult.
+    */
+    static JobSubmit fromResult()(
+        auto scope ref const(JobResult) result,
+        string workerName, 
+        uint extranonce2Size) nothrow pure @safe
+    {
+        JobSubmit submit = {
+            workerName: workerName,
+            jobID: result.jobID,
+            ntime: assumeWontThrow(format("%08x", result.ntime)),
+            nonce: assumeWontThrow(format("%08x", result.nonce)),
+            extranonce2: assumeWontThrow(format("%0*x", extranonce2Size * 2, result.extranonce2)),
+        };
+        return submit;
+    }
+}
+
+///
+nothrow pure @safe unittest
+{
+    immutable submit = JobSubmit.fromResult(
+        JobResult(
+            "test-job-id",
+            0x3456789,
+            0xABCDEF,
+            0x1234),
+        "test-worker",
+        3);
+    assert(submit.workerName == "test-worker");
+    assert(submit.jobID == "test-job-id");
+    assert(submit.ntime == "03456789");
+    assert(submit.nonce == "00abcdef");
+    assert(submit.extranonce2 == "001234");
 }
 
 /**
 Stratum job request.
 */
-struct StratumJob
+struct Job
 {
     string jobID;
     string header;
@@ -58,35 +94,26 @@ struct StratumJob
 }
 
 /**
-Stratum job response.
+Stratum job result.
 */
-struct StratumJobResult
+struct JobResult
 {
     string jobID;
     uint ntime;
     uint nonce;
     uint extranonce2;
-
-    /**
-    Returns:
-        true if result is empty.
-    */
-    @property bool empty() const @nogc nothrow pure @safe scope
-    {
-        return jobID.length == 0;
-    }
 }
 
 /**
 Job builder.
 */
-struct StratumJobBuilder
+struct JobBuilder
 {
     string extranonce1;
     int extranonce2Size;
     double difficulty = 1.0;
 
-    StratumJob build()(auto scope ref const(JobNotification) notify, uint extranonce2) pure @safe const
+    Job build()(auto scope ref const(JobNotification) notify, uint extranonce2) pure @safe const
     {
         auto buffer = appender!(ubyte[])();
         buffer ~= notify.coinb1.hexToBytes;
@@ -117,7 +144,7 @@ struct StratumJobBuilder
         header ~= notify.nbits.hexReverse;
         header ~= "00000000"; // nonce
         
-        return StratumJob(
+        return Job(
             notify.jobID,
             header[],
             calculateTarget(difficulty),
@@ -142,7 +169,7 @@ unittest
 
     // extranonce1: "2a010000"
     // extranonce2: "00434104"
-    auto builder = StratumJobBuilder(extranonce1, 4, 1);
+    auto builder = JobBuilder(extranonce1, 4, 1);
     auto job = builder.build(JobNotification(
         "job-id",
         hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81"),

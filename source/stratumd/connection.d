@@ -1,5 +1,6 @@
 module stratumd.connection;
 
+import std.string : format;
 import std.algorithm : map, filter;
 import std.array : array;
 import std.experimental.logger : tracef, warningf, errorf;
@@ -11,7 +12,9 @@ import stratumd.rpc_connection :
     RPCSender,
     RPCHandler,
     openRPCConnection;
-import stratumd.job : JobNotification, JobResult;
+import stratumd.job :
+    JobNotification,
+    JobSubmit;
 
 /**
 Stratum request callback.
@@ -78,7 +81,7 @@ interface StratumSender : TCPCloser
     /**
     Submit job.
     */
-    void submit(scope ref const(JobResult) jobResult, StratumCallback callback);
+    void submit(scope ref const(JobSubmit) jobSubmit, StratumCallback callback);
 }
 
 /**
@@ -231,9 +234,9 @@ private:
             sendSubscribe(userAgent, callback, rpcSender_);
         }
 
-        override void submit(scope ref const(JobResult) jobResult, StratumCallback callback)
+        override void submit(scope ref const(JobSubmit) jobSubmit, StratumCallback callback)
         {
-            sendSubmit(jobResult, callback, rpcSender_);
+            sendSubmit(jobSubmit, callback, rpcSender_);
         }
 
         override void close()
@@ -257,14 +260,14 @@ private:
         sendMessage("mining.submit", params, callback, sender);
     }
 
-    void sendSubmit(scope ref const(JobResult) jobResult, StratumCallback callback, scope RPCSender sender)
+    void sendSubmit(scope ref const(JobSubmit) jobSubmit, StratumCallback callback, scope RPCSender sender)
     {
         auto params = [
-            JSONValue(jobResult.workerName),
-            JSONValue(jobResult.jobID),
-            JSONValue(jobResult.extraNonce2),
-            JSONValue(jobResult.ntime),
-            JSONValue(jobResult.nonce),
+            JSONValue(jobSubmit.workerName),
+            JSONValue(jobSubmit.jobID),
+            JSONValue(jobSubmit.extranonce2),
+            JSONValue(jobSubmit.ntime),
+            JSONValue(jobSubmit.nonce),
         ];
         sendMessage("mining.submit", params, callback, sender);
     }
