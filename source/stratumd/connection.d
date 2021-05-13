@@ -6,61 +6,31 @@ import std.array : array;
 import std.experimental.logger : tracef, warningf, errorf;
 import std.exception : assumeWontThrow;
 import std.json : JSONValue;
+import std.typecons : Nullable, nullable;
+import std.traits : EnumMembers;
 
 import stratumd.tcp_connection : TCPCloser;
 import stratumd.rpc_connection :
     RPCSender,
     RPCHandler,
-    openRPCConnection;
+    openRPCConnection,
+    MessageID;
 import stratumd.job :
     JobNotification,
     JobSubmit;
 
 /**
-Stratum request callback.
+Stratum method.
 */
-struct StratumCallback
+enum StratumMethod
 {
-    /**
-    On success request.
-    */
-    void delegate(scope StratumSender sender) onSuccess;
-
-    /**
-    On error request.
-    */
-    void delegate(scope StratumSender sender) onError;
-
-    /**
-    On cancel request.
-    */
-    void delegate() onCancel;
-    
-private:
-
-    void onSuccessIfExists(scope StratumSender sender)
-    {
-        if (onSuccess)
-        {
-            onSuccess(sender);
-        }
-    }
-
-    void onErrorIfExists(scope StratumSender sender)
-    {
-        if (onError)
-        {
-            onError(sender);
-        }
-    }
-
-    void onCancelIfExists()
-    {
-        if (onCancel)
-        {
-            onCancel();
-        }
-    }
+    setDifficulty,
+    setExtranonce,
+    notify,
+    reconnect,
+    subscribe,
+    submit,
+    authorize,
 }
 
 /**
@@ -71,17 +41,17 @@ interface StratumSender : TCPCloser
     /**
     Send authorize request.
     */
-    void authorize(string username, string password, StratumCallback callback);
+    MessageID authorize(string username, string password);
 
     /**
     Send subscribe request.
     */
-    void subscribe(string userAgent, StratumCallback callback);
+    MessageID subscribe(string userAgent);
 
     /**
     Submit job.
     */
-    void submit(scope ref const(JobSubmit) jobSubmit, StratumCallback callback);
+    MessageID submit(scope ref const(JobSubmit) jobSubmit);
 }
 
 /**
@@ -113,6 +83,16 @@ interface StratumHandler
     Callback on idle time.
     */
     void onIdle(scope StratumSender sender);
+
+    /**
+    Callback on response.
+    */
+    void onResponse(MessageID id, StratumMethod method, scope StratumSender sender);
+
+    /**
+    Callback on error response.
+    */
+    void onErrorResponse(MessageID id, StratumMethod method, scope StratumSender sender);
 }
 
 /**
@@ -134,35 +114,27 @@ final class StratumStack : RPCHandler
         this.handler_ = handler;
     }
 
-    ~this() nothrow scope
-    {
-        foreach (callback; callbacks_.byValue)
-        {
-            try
-            {
-                callback.onCancelIfExists();
-            }
-            catch (Throwable e)
-            {
-                assumeWontThrow(errorf("callback error: %s", e));
-            }
-        }
-    }
-
     override void onReceiveMessage(string method, scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        switch (method)
+        immutable stratumMethod = method.toStratumMethod;
+        if (stratumMethod.isNull)
         {
-            case "mining.set_difficulty":
+            warningf("unknown method: %s (%s)", method, params);
+            return;
+        }
+
+        switch (stratumMethod.get)
+        {
+            case StratumMethod.setDifficulty:
                 onReceiveSetDifficulty(params, sender);
                 break;
-            case "mining.set_extranonce":
+            case StratumMethod.setExtranonce:
                 onReceiveSetExtranonce(params, sender);
                 break;
-            case "mining.notify":
+            case StratumMethod.notify:
                 onReceiveNotify(params, sender);
                 break;
-            case "client.reconnect":
+            case StratumMethod.reconnect:
                 onReceiveReconnect(sender);
                 break;
             default:
@@ -171,32 +143,32 @@ final class StratumStack : RPCHandler
         }
     }
 
-    override void onResponseMessage(int id, scope ref const(JSONValue) result, scope RPCSender sender)
+    override void onResponseMessage(MessageID id, scope ref const(JSONValue) result, scope RPCSender sender)
     {
-        auto callback = id in callbacks_;
-        if (!callback)
+        auto method = id in sentMethods_;
+        if (!method)
         {
             return;
         }
 
-        callbacks_.remove(id);
+        sentMethods_.remove(id);
 
         scope stratumSender = new Sender(sender);
-        callback.onSuccessIfExists(stratumSender);
+        handler_.onResponse(id, *method, stratumSender);
     }
 
-    override void onErrorResponseMessage(int id, scope ref const(JSONValue) error, scope RPCSender sender)
+    override void onErrorResponseMessage(MessageID id, scope ref const(JSONValue) error, scope RPCSender sender)
     {
-        auto callback = id in callbacks_;
-        if (!callback)
+        auto method = id in sentMethods_;
+        if (!method)
         {
             return;
         }
 
-        callbacks_.remove(id);
+        sentMethods_.remove(id);
 
         scope stratumSender = new Sender(sender);
-        callback.onErrorIfExists(stratumSender);
+        handler_.onErrorResponse(id, *method, stratumSender);
     }
 
     override void onError(scope string errorText, scope RPCSender sender)
@@ -213,8 +185,8 @@ final class StratumStack : RPCHandler
 
 private:
     StratumHandler handler_;
-    int currentID_;
-    StratumCallback[int] callbacks_;
+    MessageID currentID_;
+    StratumMethod[MessageID] sentMethods_;
 
     final class Sender : StratumSender
     {
@@ -224,19 +196,28 @@ private:
             this.rpcSender_ = rpcSender;
         }
 
-        override void authorize(string username, string password, StratumCallback callback)
+        override MessageID authorize(string username, string password)
         {
-            sendAuthorize(username, password, callback, rpcSender_);
+            auto params = [JSONValue(username), JSONValue(password)];
+            return sendMessage(StratumMethod.authorize, params, rpcSender_);
         }
 
-        override void subscribe(string userAgent, StratumCallback callback)
+        override MessageID subscribe(string userAgent)
         {
-            sendSubscribe(userAgent, callback, rpcSender_);
+            auto params = [JSONValue(userAgent)];
+            return sendMessage(StratumMethod.subscribe, params, rpcSender_);
         }
 
-        override void submit(scope ref const(JobSubmit) jobSubmit, StratumCallback callback)
+        override MessageID submit(scope ref const(JobSubmit) jobSubmit)
         {
-            sendSubmit(jobSubmit, callback, rpcSender_);
+            auto params = [
+                JSONValue(jobSubmit.workerName),
+                JSONValue(jobSubmit.jobID),
+                JSONValue(jobSubmit.extranonce2),
+                JSONValue(jobSubmit.ntime),
+                JSONValue(jobSubmit.nonce),
+            ];
+            return sendMessage(StratumMethod.submit, params, rpcSender_);
         }
 
         override void close()
@@ -248,38 +229,14 @@ private:
         RPCSender rpcSender_;
     }
 
-    void sendAuthorize(string username, string password, StratumCallback callback, scope RPCSender sender)
-    {
-        auto params = [JSONValue(username), JSONValue(password)];
-        sendMessage("mining.authorize", params, callback, sender);
-    }
-
-    void sendSubscribe(string userAgent, StratumCallback callback, scope RPCSender sender)
-    {
-        auto params = [JSONValue(userAgent)];
-        sendMessage("mining.submit", params, callback, sender);
-    }
-
-    void sendSubmit(scope ref const(JobSubmit) jobSubmit, StratumCallback callback, scope RPCSender sender)
-    {
-        auto params = [
-            JSONValue(jobSubmit.workerName),
-            JSONValue(jobSubmit.jobID),
-            JSONValue(jobSubmit.extranonce2),
-            JSONValue(jobSubmit.ntime),
-            JSONValue(jobSubmit.nonce),
-        ];
-        sendMessage("mining.submit", params, callback, sender);
-    }
-
-    void sendMessage(string method, scope const(JSONValue)[] params, StratumCallback callback, scope RPCSender sender)
+    MessageID sendMessage(StratumMethod method, scope const(JSONValue)[] params, scope RPCSender sender)
     {
         immutable currentID = currentID_;
         ++currentID_;
 
-        scope(failure) callback.onCancelIfExists();
-        sender.send(currentID, method, params);
-        callbacks_[currentID] = callback;
+        sender.send(currentID, method.toString, params);
+        sentMethods_[currentID] = method;
+        return currentID;
     }
 
     void onReceiveNotify(scope const(JSONValue)[] params, scope RPCSender sender)
@@ -299,8 +256,7 @@ private:
 
     void onReceiveSetExtranonce(scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        handler_.onSetExtranonce(
-            params[0].str, cast(int) params[1].integer);
+        handler_.onSetExtranonce(params[0].str, cast(int) params[1].integer);
     }
 
     void onReceiveSetDifficulty(scope const(JSONValue)[] params, scope RPCSender sender)
@@ -313,5 +269,39 @@ private:
         tracef("reconnect from host");
         sender.close();
     }
+}
+
+string toString(StratumMethod method)
+{
+    final switch (method)
+    {
+        case StratumMethod.setDifficulty:
+            return "mining.set_difficulty";
+        case StratumMethod.setExtranonce:
+            return "mining.set_extranonce";
+        case StratumMethod.notify:
+            return "mining.notify";
+        case StratumMethod.reconnect:
+            return "client.reconnect";
+        case StratumMethod.subscribe:
+            return "mining.subscribe";
+        case StratumMethod.submit:
+            return "mining.submit";
+        case StratumMethod.authorize:
+            return "mining.authorize";
+    }
+}
+
+Nullable!StratumMethod toStratumMethod(string method)
+{
+    static foreach (e; EnumMembers!StratumMethod)
+    {
+        if (method == e.toString)
+        {
+            return nullable(e);
+        }
+    }
+
+    return typeof(return).init;
 }
 

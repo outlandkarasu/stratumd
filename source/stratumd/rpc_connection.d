@@ -5,12 +5,18 @@ import std.array : Appender;
 import std.experimental.logger : tracef;
 import std.json : JSONValue, parseJSON;
 import std.string : representation;
+import std.typecons : Typedef;
 
 import stratumd.tcp_connection :
     TCPHandler,
     TCPSender,
     TCPCloser,
     openTCPConnection;
+
+/**
+Message ID.
+*/
+alias MessageID = Typedef!(int, 0, "MessageID");
 
 /**
 JSON-RPC sender.
@@ -20,7 +26,7 @@ interface RPCSender : TCPCloser
     /**
     Send JSON method.
     */
-    void send(int id, string method, scope const(JSONValue)[] params);
+    void send(MessageID id, string method, scope const(JSONValue)[] params);
 }
 
 /**
@@ -36,12 +42,12 @@ interface RPCHandler
     /**
     Callback on response.
     */
-    void onResponseMessage(int id, scope ref const(JSONValue) result, scope RPCSender sender);
+    void onResponseMessage(MessageID id, scope ref const(JSONValue) result, scope RPCSender sender);
 
     /**
     Callback on error response.
     */
-    void onErrorResponseMessage(int id, scope ref const(JSONValue) error, scope RPCSender sender);
+    void onErrorResponseMessage(MessageID id, scope ref const(JSONValue) error, scope RPCSender sender);
 
     /**
     Callback on error.
@@ -115,11 +121,11 @@ final class RPCStack : TCPHandler
         auto error = json["error"];
         if (error.isNull)
         {
-            rpcHandler_.onResponseMessage(cast(int) id.integer, json["result"], sender);
+            rpcHandler_.onResponseMessage(MessageID(cast(int) id.integer), json["result"], sender);
         }
         else
         {
-            rpcHandler_.onErrorResponseMessage(cast(int) id.integer, error, sender);
+            rpcHandler_.onErrorResponseMessage(MessageID(cast(int) id.integer), error, sender);
         }
     }
 
@@ -152,7 +158,7 @@ private:
             this.closer_ = closer;
         }
     
-        override void send(int id, string method, scope const(JSONValue)[] params)
+        override void send(MessageID id, string method, scope const(JSONValue)[] params)
         {
             sendMessage(id, method, params);
         }
@@ -166,11 +172,11 @@ private:
         TCPCloser closer_;
     }
 
-    void sendMessage(int id, string method, scope const(JSONValue)[] params)
+    void sendMessage(MessageID id, string method, scope const(JSONValue)[] params)
     {
         JSONValue json;
         json["method"] = method;
-        json["id"] = id;
+        json["id"] = cast(int) id;
         json["params"].array = [];
         foreach (ref e; params)
         {
