@@ -232,6 +232,8 @@ private:
                 JSONValue(jobSubmit.ntime),
                 JSONValue(jobSubmit.nonce),
             ];
+
+            tracef("submit: %s", params);
             auto result = nullable(sendMessage(StratumMethod.submit, params, rpcSender_));
 
             // notify next extranonce2 job.
@@ -299,6 +301,7 @@ private:
     void onReceiveSetDifficulty(scope const(JSONValue)[] params, scope RPCSender sender)
     {
         jobBuilder_.difficulty = params[0].floating;
+        tracef("set difficulty: %s", jobBuilder_.difficulty);
     }
 
     void onReceiveReconnect(scope RPCSender sender)
@@ -318,6 +321,7 @@ private:
     void notifyCurrentJob()
     {
         immutable job = jobBuilder_.build(currentJob_);
+        tracef("notify current job: %s", job);
         handler_.onNotify(job);
     }
 }
