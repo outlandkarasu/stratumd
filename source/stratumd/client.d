@@ -97,6 +97,14 @@ final class StratumClient
     }
 
     /**
+    Increment extranonce2 request.
+    */
+    void incrementExtranonce2()
+    {
+        connectionTid_.send(IncrementingExtranonce2());
+    }
+
+    /**
     Close connection.
     */
     void close()
@@ -133,6 +141,8 @@ private:
     }
 
     struct Submitted { bool result; }
+
+    struct IncrementingExtranonce2 {}
 
     struct JobNotify { Job job; }
 
@@ -229,6 +239,14 @@ private:
                 (Subscribing request)
                 {
                     sender.subscribe(request.userAgent);
+                },
+                (IncrementingExtranonce2 request)
+                {
+                    sender.incrementExtranonce2();
+                },
+                (Closing request)
+                {
+                    sender.close();
                 });
         }
     }
