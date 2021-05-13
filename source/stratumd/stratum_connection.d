@@ -65,7 +65,7 @@ interface StratumHandler
     /**
     Callback on job notify.
     */
-    void onNotify(scope ref const(Job) job);
+    void onNotify(scope ref const(Job) job, scope StratumSender sender);
 
     /**
     Callback on error.
@@ -240,7 +240,7 @@ private:
             if (currentJob_.jobID == jobResult.jobID)
             {
                 ++jobBuilder_.extranonce2;
-                notifyCurrentJob();
+                notifyCurrentJob(this);
             }
 
             return result;
@@ -290,7 +290,8 @@ private:
         }
         currentJob_ = notification;
 
-        notifyCurrentJob();
+        scope stratumSender = new Sender(sender);
+        notifyCurrentJob(stratumSender);
     }
 
     void onReceiveSetExtranonce(scope const(JSONValue)[] params, scope RPCSender sender)
@@ -318,11 +319,11 @@ private:
         jobBuilder_.extranonce2Size = extranonce2Size;
     }
 
-    void notifyCurrentJob()
+    void notifyCurrentJob(scope StratumSender sender)
     {
         immutable job = jobBuilder_.build(currentJob_);
         tracef("notify current job: %s", job);
-        handler_.onNotify(job);
+        handler_.onNotify(job, sender);
     }
 }
 
