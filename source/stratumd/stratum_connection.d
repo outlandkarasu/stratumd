@@ -292,7 +292,6 @@ private:
         jobBuilder_.extranonce1 = params[0].str;
         jobBuilder_.extranonce2 = 0;
         jobBuilder_.extranonce2Size = cast(uint) params[1].integer;
-        currentJob_ = JobNotification.init;
     }
 
     void onReceiveSetDifficulty(scope const(JSONValue)[] params, scope RPCSender sender)
