@@ -16,8 +16,11 @@ import stratumd.rpc_connection :
     openRPCConnection,
     MessageID;
 import stratumd.job :
+    Job,
     JobNotification,
-    JobSubmit;
+    JobResult,
+    JobSubmit,
+    JobBuilder;
 
 /**
 Stratum method.
@@ -49,9 +52,9 @@ interface StratumSender : TCPCloser
     MessageID subscribe(string userAgent);
 
     /**
-    Submit job.
+    Submit job if alived.
     */
-    MessageID submit(scope ref const(JobSubmit) jobSubmit);
+    Nullable!MessageID submit(scope ref const(JobResult) jobResult);
 }
 
 /**
@@ -60,19 +63,9 @@ Stratum handler.
 interface StratumHandler
 {
     /**
-    Callback on set difficulty.
+    Callback on job notify.
     */
-    void onSetDifficulty(double difficulty);
-
-    /**
-    Callback on extra nonce.
-    */
-    void onSetExtranonce(string extranonce1, int extranonce2Size);
-
-    /**
-    Callback on notify.
-    */
-    void onNotify(scope ref const(JobNotification) jobNotification);
+    void onNotify(scope ref const(Job) job);
 
     /**
     Callback on error.
@@ -184,9 +177,18 @@ final class StratumStack : RPCHandler
     }
 
 private:
+
+    struct JobInfo
+    {
+        uint extranonce2Size;
+    }
+
     StratumHandler handler_;
     MessageID currentID_;
     StratumMethod[MessageID] sentMethods_;
+    JobInfo[string] jobs_;
+    JobNotification currentJob_;
+    JobBuilder jobBuilder_;
 
     final class Sender : StratumSender
     {
@@ -208,8 +210,16 @@ private:
             return sendMessage(StratumMethod.subscribe, params, rpcSender_);
         }
 
-        override MessageID submit(scope ref const(JobSubmit) jobSubmit)
+        override Nullable!MessageID submit(scope ref const(JobResult) jobResult)
         {
+            auto jobInfo = jobResult.jobID in jobs_;
+            if (!jobInfo)
+            {
+                warningf("jobID: %s is expired.", jobResult.jobID);
+                return typeof(return).init;
+            }
+
+            auto jobSubmit = JobSubmit.fromResult(jobResult, "", jobInfo.extranonce2Size);
             auto params = [
                 JSONValue(jobSubmit.workerName),
                 JSONValue(jobSubmit.jobID),
@@ -217,7 +227,16 @@ private:
                 JSONValue(jobSubmit.ntime),
                 JSONValue(jobSubmit.nonce),
             ];
-            return sendMessage(StratumMethod.submit, params, rpcSender_);
+            auto result = nullable(sendMessage(StratumMethod.submit, params, rpcSender_));
+
+            // notify next extranonce2 job.
+            if (currentJob_.jobID == jobResult.jobID)
+            {
+                ++jobBuilder_.extranonce2;
+                notifyCurrentJob();
+            }
+
+            return result;
         }
 
         override void close()
@@ -251,23 +270,46 @@ private:
             params[6].str,
             params[7].str,
             params[8].boolean);
-        handler_.onNotify(notification);
+
+        if (notification.cleanJobs)
+        {
+            jobs_.clear();
+        }
+        jobs_[notification.jobID] = JobInfo(jobBuilder_.extranonce2Size);
+
+        if (currentJob_.jobID != notification.jobID)
+        {
+            jobBuilder_.extranonce2 = 0;
+        }
+        currentJob_ = notification;
+
+        notifyCurrentJob();
     }
 
     void onReceiveSetExtranonce(scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        handler_.onSetExtranonce(params[0].str, cast(int) params[1].integer);
+        // reset extranonce and clean current job.
+        jobBuilder_.extranonce1 = params[0].str;
+        jobBuilder_.extranonce2 = 0;
+        jobBuilder_.extranonce2Size = cast(uint) params[1].integer;
+        currentJob_ = JobNotification.init;
     }
 
     void onReceiveSetDifficulty(scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        handler_.onSetDifficulty(params[0].floating);
+        jobBuilder_.difficulty = params[0].floating;
     }
 
     void onReceiveReconnect(scope RPCSender sender)
     {
         tracef("reconnect from host");
         sender.close();
+    }
+
+    void notifyCurrentJob()
+    {
+        immutable job = jobBuilder_.build(currentJob_);
+        handler_.onNotify(job);
     }
 }
 
