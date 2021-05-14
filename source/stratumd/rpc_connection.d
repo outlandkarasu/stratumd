@@ -1,7 +1,7 @@
 module stratumd.rpc_connection;
 
-import std.algorithm : countUntil, copy;
-import std.array : Appender;
+import std.algorithm : countUntil, copy, map;
+import std.array : Appender, array;
 import std.experimental.logger : tracef;
 import std.json : JSONValue, parseJSON;
 import std.string : representation;
@@ -177,11 +177,7 @@ private:
         JSONValue json;
         json["method"] = method;
         json["id"] = cast(int) id;
-        json["params"].array = [];
-        foreach (ref e; params)
-        {
-            json["params"] ~= e;
-        }
+        json["params"] = params.map!((e) => JSONValue(e)).array;
 
         scope jsonString = json.toString;
         tracef("send: %s", jsonString);

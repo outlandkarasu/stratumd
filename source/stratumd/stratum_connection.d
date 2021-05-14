@@ -153,7 +153,7 @@ final class StratumStack : RPCHandler
 
         if (*method == StratumMethod.subscribe)
         {
-            updateExtranonce(result[1].str, cast(uint) result[2].uinteger);
+            updateExtranonce(result[1].str, cast(uint) result[2].integer);
         }
 
         scope stratumSender = new Sender(sender);

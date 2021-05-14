@@ -1,7 +1,7 @@
 module stratumd.client;
 
 import core.time : seconds, msecs, Duration;
-import std.experimental.logger : tracef, errorf;
+import std.experimental.logger : tracef, errorf, infof;
 import std.concurrency :
     thisTid,
     Tid,
@@ -52,7 +52,7 @@ final class StratumClient
         }
 
         connectionTid_ = spawnLinked(&connectionThread, hostname, port, thisTid);
-        if (!receiveTimeout(responseTimeout, (Connected r) {}))
+        if (!receiveTimeout(responseTimeout, (Connected r) { }))
         {
             close();
             throw new StratumClientException("connection timed out");
@@ -253,8 +253,17 @@ private:
 
     static void connectionThread(string hostname, ushort port, Tid parentTid)
     {
-        scope handler = new Handler(parentTid);
-        openStratumConnection(hostname, port, handler);
+        try
+        {
+            scope handler = new Handler(parentTid);
+            openStratumConnection(hostname, port, handler);
+        }
+        catch (Throwable e)
+        {
+            errorf("connection thread error: %s", e);
+        }
+
+        infof("exit connection thread.");
     }
 
     void waitResponse(R)()
