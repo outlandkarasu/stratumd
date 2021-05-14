@@ -5,10 +5,11 @@ import std.experimental.logger : tracef, errorf, infof;
 import std.concurrency :
     thisTid,
     Tid,
-    spawnLinked,
+    spawn,
     send,
     OwnerTerminated,
-    receiveTimeout;
+    receiveTimeout,
+    ownerTid;
 import std.exception : basicExceptionCtors;
 import std.typecons : Nullable, nullable;
 
@@ -51,7 +52,7 @@ final class StratumClient
             throw new StratumClientException("Already connected");
         }
 
-        connectionTid_ = spawnLinked(&connectionThread, hostname, port, thisTid);
+        connectionTid_ = spawn(&connectionThread, hostname, port);
         if (!receiveTimeout(responseTimeout, (Connected r) { }))
         {
             close();
@@ -150,14 +151,9 @@ private:
 
     static class Handler : StratumHandler
     {
-        this(Tid parentTid) @nogc nothrow pure @safe scope
-        {
-            this.parentTid_ = parentTid;
-        }
-
         override void onNotify(scope ref const(Job) job, scope StratumSender sender)
         {
-            parentTid_.send(JobNotify(job));
+            ownerTid.send(JobNotify(job));
         }
 
         override void onError(scope string errorText, scope StratumSender sender)
@@ -190,7 +186,6 @@ private:
         }
 
     private:
-        Tid parentTid_;
         bool connected_;
 
         void translateResponse(StratumMethod method, bool result, scope StratumSender sender) scope
@@ -215,7 +210,7 @@ private:
         {
             try
             {
-                parentTid_.send(message);
+                ownerTid.send(message);
             }
             catch (OwnerTerminated e)
             {
@@ -251,11 +246,11 @@ private:
         }
     }
 
-    static void connectionThread(string hostname, ushort port, Tid parentTid)
+    static void connectionThread(string hostname, ushort port)
     {
         try
         {
-            scope handler = new Handler(parentTid);
+            scope handler = new Handler();
             openStratumConnection(hostname, port, handler);
         }
         catch (Throwable e)
