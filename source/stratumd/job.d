@@ -89,6 +89,7 @@ struct Job
     string jobID;
     string header;
     uint[8] target;
+    uint extranonce2;
 }
 
 /**
@@ -147,7 +148,8 @@ struct JobBuilder
         return Job(
             notify.jobID,
             header[],
-            calculateTarget(difficulty));
+            calculateTarget(difficulty),
+            extranonce2);
     }
 }
 
@@ -179,6 +181,7 @@ unittest
         "1a44b9f2",
         "4dd7f5c7",
         false));
+    assert(job.extranonce2 == extranonce2);
     assert(job.header[0 .. $ - 8] == expectedHeaderAndNonce[0 .. $ - 8]);
     assert(job.header[$ - 8 .. $] == "00000000");
     assert(job.target == [0, 0, 0, 0, 0, 0, 0xFFFF0000, 0]);
