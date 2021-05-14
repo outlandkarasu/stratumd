@@ -306,12 +306,12 @@ private:
 
     void onReceiveSetExtranonce(scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        updateExtranonce(params[0].str, cast(uint) params[1].uinteger);
+        updateExtranonce(params[0].str, params[1].get!uint);
     }
 
     void onReceiveSetDifficulty(scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        jobBuilder_.difficulty = params[0].floating;
+        jobBuilder_.difficulty = params[0].get!double;
         tracef("set difficulty: %s", jobBuilder_.difficulty);
     }
 
