@@ -219,15 +219,7 @@ private:
                 return typeof(return).init;
             }
 
-            auto jobSubmit = JobSubmit.fromResult(jobResult);
-            auto params = [
-                JSONValue(jobSubmit.workerName),
-                JSONValue(jobSubmit.jobID),
-                JSONValue(jobSubmit.extranonce2),
-                JSONValue(jobSubmit.ntime),
-                JSONValue(jobSubmit.nonce),
-            ];
-
+            auto params = resultToParams(jobResult);
             tracef("submit: %s", params);
             auto result = nullable(sendMessage(StratumMethod.submit, params, rpcSender_));
 
@@ -260,17 +252,7 @@ private:
 
     void onReceiveNotify(scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        auto notification = JobNotification(
-            params[0].str,
-            params[1].str,
-            params[2].str,
-            params[3].str,
-            params[4].array.map!((e) => e.str).array,
-            params[5].str,
-            params[6].str,
-            params[7].str,
-            params[8].boolean);
-
+        auto notification = parseNotification(params);
         if (notification.cleanJobs)
         {
             jobs_.clear();
@@ -317,6 +299,32 @@ private:
         immutable job = jobBuilder_.build(currentJob_);
         tracef("notify current job: %s", job);
         handler_.onNotify(job, sender);
+    }
+
+    static JobNotification parseNotification(scope const(JSONValue)[] params)
+    {
+        return JobNotification(
+            params[0].str,
+            params[1].str,
+            params[2].str,
+            params[3].str,
+            params[4].array.map!((e) => e.str).array,
+            params[5].str,
+            params[6].str,
+            params[7].str,
+            params[8].boolean);
+    }
+
+    static const(JSONValue)[] resultToParams(return scope ref const(JobResult) result)
+    {
+        auto jobSubmit = JobSubmit.fromResult(result);
+        return [
+            JSONValue(jobSubmit.workerName),
+            JSONValue(jobSubmit.jobID),
+            JSONValue(jobSubmit.extranonce2),
+            JSONValue(jobSubmit.ntime),
+            JSONValue(jobSubmit.nonce),
+        ];
     }
 }
 
