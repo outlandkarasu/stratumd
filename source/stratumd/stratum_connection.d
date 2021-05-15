@@ -124,10 +124,10 @@ final class StratumStack : RPCHandler
         switch (stratumMethod.get)
         {
             case StratumMethod.setDifficulty:
-                onReceiveSetDifficulty(params, sender);
+                onReceiveSetDifficulty(params);
                 break;
             case StratumMethod.setExtranonce:
-                onReceiveSetExtranonce(params, sender);
+                onReceiveSetExtranonce(params);
                 break;
             case StratumMethod.notify:
                 onReceiveNotify(params, sender);
@@ -152,7 +152,7 @@ final class StratumStack : RPCHandler
 
         if (stratumMethod == StratumMethod.subscribe)
         {
-            updateExtranonce(result[1].str, cast(uint) result[2].integer);
+            onReceiveSubscribeResponse(result);
         }
 
         scope stratumSender = new Sender(sender);
@@ -269,21 +269,26 @@ private:
         notifyCurrentJob(stratumSender);
     }
 
-    void onReceiveSetExtranonce(scope const(JSONValue)[] params, scope RPCSender sender)
-    {
-        updateExtranonce(params[0].str, params[1].get!uint);
-    }
-
-    void onReceiveSetDifficulty(scope const(JSONValue)[] params, scope RPCSender sender)
-    {
-        jobBuilder_.difficulty = params[0].get!double;
-        tracef("set difficulty: %s", jobBuilder_.difficulty);
-    }
-
     void onReceiveReconnect(scope RPCSender sender)
     {
         tracef("reconnect from host");
         sender.close();
+    }
+
+    void onReceiveSubscribeResponse(scope ref const(JSONValue) result)
+    {
+        updateExtranonce(result[1].str, result[2].get!uint);
+    }
+
+    void onReceiveSetExtranonce(scope const(JSONValue)[] params)
+    {
+        updateExtranonce(params[0].str, params[1].get!uint);
+    }
+
+    void onReceiveSetDifficulty(scope const(JSONValue)[] params)
+    {
+        jobBuilder_.difficulty = params[0].get!double;
+        tracef("set difficulty: %s", jobBuilder_.difficulty);
     }
 
     void updateExtranonce(string extranonce1, uint extranonce2Size)
