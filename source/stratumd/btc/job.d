@@ -153,6 +153,22 @@ struct BTCJobBuilder
             extranonce2,
             extranonce2Size);
     }
+
+    /**
+    Set up next job.
+    */
+    void completeJob() @nogc nothrow pure @safe scope
+    {
+        ++extranonce2;
+    }
+
+    /**
+    clean current job.
+    */
+    void cleanJob() @nogc nothrow pure @safe scope
+    {
+        extranonce2 = 0;
+    }
 }
 
 ///

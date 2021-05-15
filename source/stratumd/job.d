@@ -151,6 +151,22 @@ struct JobBuilder
             calculateTarget(difficulty),
             extranonce2);
     }
+
+    /**
+    Set up next job.
+    */
+    void completeJob() @nogc nothrow pure @safe scope
+    {
+        ++extranonce2;
+    }
+
+    /**
+    clean current job.
+    */
+    void cleanJob() @nogc nothrow pure @safe scope
+    {
+        extranonce2 = 0;
+    }
 }
 
 ///

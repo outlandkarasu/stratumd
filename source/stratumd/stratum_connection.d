@@ -231,7 +231,7 @@ private:
         {
             if (currentJob_.jobID == jobID)
             {
-                ++jobBuilder_.extranonce2;
+                jobBuilder_.completeJob;
                 notifyCurrentJob(this);
             }
         }
@@ -261,7 +261,7 @@ private:
 
         if (currentJob_.jobID != notification.jobID)
         {
-            jobBuilder_.extranonce2 = 0;
+            jobBuilder_.cleanJob();
         }
         currentJob_ = notification;
 
