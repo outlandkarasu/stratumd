@@ -141,37 +141,35 @@ final class StratumStack : RPCHandler
         }
     }
 
-    override void onResponseMessage(MessageID id, scope ref const(JSONValue) result, scope RPCSender sender)
+    override void onResponseMessage(MessageID id, string method, scope ref const(JSONValue) result, scope RPCSender sender)
     {
-        auto method = id in sentMethods_;
-        if (!method)
+        auto stratumMethod = method.toStratumMethod;
+        if (stratumMethod.isNull)
         {
+            warningf("unknown method: %s", method);
             return;
         }
 
-        sentMethods_.remove(id);
-
-        if (*method == StratumMethod.subscribe)
+        if (stratumMethod == StratumMethod.subscribe)
         {
             updateExtranonce(result[1].str, cast(uint) result[2].integer);
         }
 
         scope stratumSender = new Sender(sender);
-        handler_.onResponse(id, *method, stratumSender);
+        handler_.onResponse(id, stratumMethod.get, stratumSender);
     }
 
-    override void onErrorResponseMessage(MessageID id, scope ref const(JSONValue) error, scope RPCSender sender)
+    override void onErrorResponseMessage(MessageID id, string method, scope ref const(JSONValue) error, scope RPCSender sender)
     {
-        auto method = id in sentMethods_;
-        if (!method)
+        auto stratumMethod = method.toStratumMethod;
+        if (stratumMethod.isNull)
         {
+            warningf("unknown method: %s", method);
             return;
         }
 
-        sentMethods_.remove(id);
-
         scope stratumSender = new Sender(sender);
-        handler_.onErrorResponse(id, *method, stratumSender);
+        handler_.onErrorResponse(id, stratumMethod.get, stratumSender);
     }
 
     override void onError(scope string errorText, scope RPCSender sender)
@@ -194,8 +192,6 @@ private:
     }
 
     StratumHandler handler_;
-    MessageID currentID_;
-    StratumMethod[MessageID] sentMethods_;
     JobInfo[string] jobs_;
     JobNotification currentJob_;
     JobBuilder jobBuilder_;
@@ -267,12 +263,7 @@ private:
 
     MessageID sendMessage(StratumMethod method, scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        immutable currentID = currentID_;
-        ++currentID_;
-
-        sender.send(currentID, method.toString, params);
-        sentMethods_[currentID] = method;
-        return currentID;
+        return sender.send(method.toString, params);
     }
 
     void onReceiveNotify(scope const(JSONValue)[] params, scope RPCSender sender)

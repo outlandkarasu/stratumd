@@ -2,7 +2,7 @@ module stratumd.rpc_connection;
 
 import std.algorithm : countUntil, copy, map;
 import std.array : Appender, array;
-import std.experimental.logger : tracef;
+import std.experimental.logger : tracef, warningf;
 import std.json : JSONValue, parseJSON;
 import std.string : representation;
 import std.typecons : Typedef;
@@ -26,7 +26,7 @@ interface RPCSender : TCPCloser
     /**
     Send JSON method.
     */
-    void send(MessageID id, string method, scope const(JSONValue)[] params);
+    MessageID send(string method, scope const(JSONValue)[] params);
 }
 
 /**
@@ -42,12 +42,12 @@ interface RPCHandler
     /**
     Callback on response.
     */
-    void onResponseMessage(MessageID id, scope ref const(JSONValue) result, scope RPCSender sender);
+    void onResponseMessage(MessageID id, string method, scope ref const(JSONValue) result, scope RPCSender sender);
 
     /**
     Callback on error response.
     */
-    void onErrorResponseMessage(MessageID id, scope ref const(JSONValue) error, scope RPCSender sender);
+    void onErrorResponseMessage(MessageID id, string method, scope ref const(JSONValue) error, scope RPCSender sender);
 
     /**
     Callback on error.
@@ -118,14 +118,23 @@ final class RPCStack : TCPHandler
             return;
         }
 
+        immutable messageID = MessageID(id.get!int);
+        auto method = messageID in sentMethods_;
+        if (!method)
+        {
+            warningf("unsent message. %s", json);
+            return;
+        }
+        sentMethods_.remove(messageID);
+
         auto error = json["error"];
         if (error.isNull)
         {
-            rpcHandler_.onResponseMessage(MessageID(cast(int) id.integer), json["result"], sender);
+            rpcHandler_.onResponseMessage(messageID, *method, json["result"], sender);
         }
         else
         {
-            rpcHandler_.onErrorResponseMessage(MessageID(cast(int) id.integer), error, sender);
+            rpcHandler_.onErrorResponseMessage(messageID, *method, error, sender);
         }
     }
 
@@ -149,6 +158,8 @@ private:
     Appender!(ubyte[]) sendBuffer_;
     Appender!(ubyte[]) receiveBuffer_;
     RPCHandler rpcHandler_;
+    MessageID currentID_;
+    string[MessageID] sentMethods_;
 
     final class Sender : RPCSender 
     {
@@ -158,9 +169,9 @@ private:
             this.closer_ = closer;
         }
     
-        override void send(MessageID id, string method, scope const(JSONValue)[] params)
+        override MessageID send(string method, scope const(JSONValue)[] params)
         {
-            sendMessage(id, method, params);
+            return sendMessage(method, params);
         }
 
         override void close()
@@ -172,11 +183,14 @@ private:
         TCPCloser closer_;
     }
 
-    void sendMessage(MessageID id, string method, scope const(JSONValue)[] params)
+    MessageID sendMessage(string method, scope const(JSONValue)[] params)
     {
+        immutable currentID = currentID_;
+        ++currentID_;
+
         JSONValue json;
         json["method"] = method;
-        json["id"] = cast(int) id;
+        json["id"] = cast(int) currentID;
         json["params"] = params.map!((e) => JSONValue(e)).array;
 
         scope jsonString = json.toString;
@@ -184,6 +198,8 @@ private:
 
         sendBuffer_ ~= jsonString.representation;
         sendBuffer_ ~= '\n';
+        sentMethods_[currentID] = method;
+        return currentID;
     }
 }
 
