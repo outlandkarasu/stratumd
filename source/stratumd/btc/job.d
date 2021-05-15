@@ -49,15 +49,14 @@ struct BTCJobSubmit
     Construct from JobResult.
     */
     static BTCJobSubmit fromResult()(
-        auto scope ref const(BTCJobResult) result,
-        uint extranonce2Size) nothrow pure @safe
+        auto scope ref const(BTCJobResult) result) nothrow pure @safe
     {
         BTCJobSubmit submit = {
             workerName: result.workerName,
             jobID: result.jobID,
             ntime: assumeWontThrow(format("%08x", result.ntime)),
             nonce: assumeWontThrow(format("%08x", result.nonce)),
-            extranonce2: assumeWontThrow(format("%0*x", extranonce2Size * 2, result.extranonce2)),
+            extranonce2: assumeWontThrow(format("%0*x", result.extranonce2Size * 2, result.extranonce2)),
         };
         return submit;
     }
@@ -72,8 +71,8 @@ nothrow pure @safe unittest
             "test-job-id",
             0x3456789,
             0xABCDEF,
-            0x1234),
-        3);
+            0x1234,
+            3));
     assert(submit.workerName == "test-worker");
     assert(submit.jobID == "test-job-id");
     assert(submit.ntime == "03456789");

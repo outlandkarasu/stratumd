@@ -186,13 +186,8 @@ final class StratumStack : RPCHandler
 
 private:
 
-    struct JobInfo
-    {
-        uint extranonce2Size;
-    }
-
     StratumHandler handler_;
-    JobInfo[string] jobs_;
+    bool[string] jobs_;
     JobNotification currentJob_;
     JobBuilder jobBuilder_;
 
@@ -218,14 +213,13 @@ private:
 
         override Nullable!MessageID submitAndCompleteJob(scope ref const(JobResult) jobResult)
         {
-            auto jobInfo = jobResult.jobID in jobs_;
-            if (!jobInfo)
+            if (!(jobResult.jobID in jobs_))
             {
                 warningf("jobID: %s is expired.", jobResult.jobID);
                 return typeof(return).init;
             }
 
-            auto jobSubmit = JobSubmit.fromResult(jobResult, jobInfo.extranonce2Size);
+            auto jobSubmit = JobSubmit.fromResult(jobResult);
             auto params = [
                 JSONValue(jobSubmit.workerName),
                 JSONValue(jobSubmit.jobID),
@@ -281,7 +275,7 @@ private:
         {
             jobs_.clear();
         }
-        jobs_[notification.jobID] = JobInfo(jobBuilder_.extranonce2Size);
+        jobs_[notification.jobID] = true;
 
         if (currentJob_.jobID != notification.jobID)
         {
