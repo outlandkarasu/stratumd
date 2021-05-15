@@ -151,6 +151,12 @@ struct BTCJobBuilder
         double difficulty() { return difficulty_; }
     }
 
+    @property @nogc nothrow pure @safe scope
+    {
+        void extranonce2(uint value) { extranonce2_ = value; }
+        void difficulty(double value) { difficulty_ = value; }
+    }
+
     static const(JSONValue)[] resultToJSONParams(scope ref const(JobResult) result)
     {
         return BTCJobSubmit.fromResult(result).toJSONParams;
@@ -190,31 +196,30 @@ unittest
     // extranonce1: "2a010000"
     // extranonce2: "00434104"
     auto builder = BTCJobBuilder();
-    auto subscribeResponse = JSONValue();
-    subscribeResponse.array = [];
-    subscribeResponse.array ~= JSONValue("");
-    subscribeResponse.array ~= JSONValue(extranonce1);
-    subscribeResponse.array ~= JSONValue(extranonce2Size);
+    auto subscribeResponse = JSONValue([
+        JSONValue(""),
+        JSONValue(extranonce1),
+        JSONValue(extranonce2Size),
+    ]);
     builder.receiveSubscribeResponse(subscribeResponse);
     assert(builder.extranonce1 == extranonce1);
     assert(builder.extranonce2Size == extranonce2Size);
 
     builder.receiveSetDifficulty([JSONValue(1)]);
 
-    JSONValue[] notificationParams;
-    notificationParams ~= JSONValue("job-id");
-    notificationParams ~= JSONValue(hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81"));
-    notificationParams ~= JSONValue("01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415");
-    notificationParams ~= JSONValue("d879d5ef8b70cf0a33925101b64429ad7eb370da8ad0b05c9cd60922c363a1eada85bcc2843b7378e226735048786c790b30b28438d22acfade24ef047b5f865ac00000000");
-    notificationParams ~= JSONValue([ tx1, tx23, ]);
-    notificationParams ~= JSONValue("00000001");
-    notificationParams ~= JSONValue("1a44b9f2");
-    notificationParams ~= JSONValue("4dd7f5c7");
-    notificationParams ~= JSONValue(false);
+    auto notificationParams = [
+        JSONValue("job-id"),
+        JSONValue(hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81")),
+        JSONValue("01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415"),
+        JSONValue("d879d5ef8b70cf0a33925101b64429ad7eb370da8ad0b05c9cd60922c363a1eada85bcc2843b7378e226735048786c790b30b28438d22acfade24ef047b5f865ac00000000"),
+        JSONValue([ tx1, tx23, ]),
+        JSONValue("00000001"),
+        JSONValue("1a44b9f2"),
+        JSONValue("4dd7f5c7"),
+        JSONValue(false),
+    ];
     builder.receiveNotify(notificationParams);
-
-    builder.extranonce2_ = extranonce2;
-    assert(builder.extranonce2 == extranonce2);
+    builder.extranonce2 = extranonce2;
 
     auto job = builder.build();
     assert(job.extranonce2 == extranonce2);
