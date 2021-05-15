@@ -90,6 +90,7 @@ struct BTCJob
     string header;
     uint[8] target;
     uint extranonce2;
+    uint extranonce2Size;
 }
 
 /**
@@ -102,6 +103,7 @@ struct BTCJobResult
     uint ntime;
     uint nonce;
     uint extranonce2;
+    uint extranonce2Size;
 }
 
 /**
@@ -149,7 +151,8 @@ struct BTCJobBuilder
             notify.jobID,
             header[],
             calculateTarget(difficulty),
-            extranonce2);
+            extranonce2,
+            extranonce2Size);
     }
 }
 
@@ -167,10 +170,11 @@ unittest
     string expectedHeaderAndNonce = "0100000081cd02ab7e569e8bcd9317e2fe99f2de44d49ab2b8851ba4a308000000000000e320b6c2fffc8d750423db8b1eb942ae710e951ed797f7affc8892b0f1fc122bc7f5d74df2b9441a42a14695";
     string extranonce1 = "2a010000";
     immutable extranonce2 = 0x434104;
+    immutable extranonce2Size = 4;
 
     // extranonce1: "2a010000"
     // extranonce2: "00434104"
-    auto builder = BTCJobBuilder(extranonce1, extranonce2, 4, 1);
+    auto builder = BTCJobBuilder(extranonce1, extranonce2, extranonce2Size, 1);
     auto job = builder.build(BTCJobNotification(
         "job-id",
         hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81"),
@@ -182,6 +186,7 @@ unittest
         "4dd7f5c7",
         false));
     assert(job.extranonce2 == extranonce2);
+    assert(job.extranonce2Size == extranonce2Size);
     assert(job.header[0 .. $ - 8] == expectedHeaderAndNonce[0 .. $ - 8]);
     assert(job.header[$ - 8 .. $] == "00000000");
     assert(job.target == [0, 0, 0, 0, 0, 0, 0xFFFF0000, 0]);
