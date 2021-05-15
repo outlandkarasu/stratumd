@@ -52,14 +52,14 @@ interface StratumSender : TCPCloser
     MessageID subscribe(string userAgent);
 
     /**
-    Submit job if alived.
+    Submit and complete job if alived.
     */
-    Nullable!MessageID submit(scope ref const(JobResult) jobResult);
+    Nullable!MessageID submitAndCompleteJob(scope ref const(JobResult) jobResult);
 
     /**
-    Increment extranonce2.
+    complete job.
     */
-    void incrementExtranonce2();
+    void completeJob(string jobID);
 }
 
 /**
@@ -216,7 +216,7 @@ private:
             return sendMessage(StratumMethod.subscribe, params, rpcSender_);
         }
 
-        override Nullable!MessageID submit(scope ref const(JobResult) jobResult)
+        override Nullable!MessageID submitAndCompleteJob(scope ref const(JobResult) jobResult)
         {
             auto jobInfo = jobResult.jobID in jobs_;
             if (!jobInfo)
@@ -237,19 +237,17 @@ private:
             tracef("submit: %s", params);
             auto result = nullable(sendMessage(StratumMethod.submit, params, rpcSender_));
 
-            // notify next extranonce2 job.
-            if (currentJob_.jobID == jobResult.jobID)
-            {
-                incrementExtranonce2();
-            }
-
+            completeJob(jobResult.jobID);
             return result;
         }
 
-        override void incrementExtranonce2()
+        override void completeJob(string jobID)
         {
-            ++jobBuilder_.extranonce2;
-            notifyCurrentJob(this);
+            if (currentJob_.jobID == jobID)
+            {
+                ++jobBuilder_.extranonce2;
+                notifyCurrentJob(this);
+            }
         }
 
         override void close()

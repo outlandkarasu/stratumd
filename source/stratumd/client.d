@@ -98,11 +98,11 @@ final class StratumClient
     }
 
     /**
-    Increment extranonce2 request.
+    complete job request.
     */
-    void incrementExtranonce2()
+    void completeJob(string jobID)
     {
-        connectionTid_.send(IncrementingExtranonce2());
+        connectionTid_.send(CompletingJob(jobID));
     }
 
     /**
@@ -143,7 +143,7 @@ private:
 
     struct Submitted { bool result; }
 
-    struct IncrementingExtranonce2 {}
+    struct CompletingJob { string jobID; }
 
     struct JobNotify { Job job; }
 
@@ -229,15 +229,15 @@ private:
                 },
                 (Submitting request)
                 {
-                    sender.submit(request.jobResult);
+                    sender.submitAndCompleteJob(request.jobResult);
                 },
                 (Subscribing request)
                 {
                     sender.subscribe(request.userAgent);
                 },
-                (IncrementingExtranonce2 request)
+                (CompletingJob request)
                 {
-                    sender.incrementExtranonce2();
+                    sender.completeJob(request.jobID);
                 },
                 (Closing request)
                 {
