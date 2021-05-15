@@ -196,18 +196,17 @@ unittest
     // extranonce1: "2a010000"
     // extranonce2: "00434104"
     auto builder = BTCJobBuilder();
-    auto subscribeResponse = JSONValue([
+    builder.receiveSubscribeResponse(JSONValue([
         JSONValue(""),
         JSONValue(extranonce1),
         JSONValue(extranonce2Size),
-    ]);
-    builder.receiveSubscribeResponse(subscribeResponse);
+    ]));
     assert(builder.extranonce1 == extranonce1);
     assert(builder.extranonce2Size == extranonce2Size);
 
     builder.receiveSetDifficulty([JSONValue(1)]);
 
-    auto notificationParams = [
+    builder.receiveNotify([
         JSONValue("job-id"),
         JSONValue(hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81")),
         JSONValue("01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415"),
@@ -217,8 +216,7 @@ unittest
         JSONValue("1a44b9f2"),
         JSONValue("4dd7f5c7"),
         JSONValue(false),
-    ];
-    builder.receiveNotify(notificationParams);
+    ]);
     builder.extranonce2 = extranonce2;
 
     auto job = builder.build();
