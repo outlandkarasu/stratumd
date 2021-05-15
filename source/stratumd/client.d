@@ -19,7 +19,6 @@ import stratumd.stratum_connection :
     StratumSender,
     StratumHandler,
     StratumMethod;
-import stratumd.btc.job : BTCJobBuilder;
 
 /**
 Stratum related error.
@@ -32,9 +31,8 @@ final class StratumClientException : Exception
 /**
 Stratum client.
 */
-final class StratumClient
+final class StratumClient(JobBuilder)
 {
-    alias JobBuilder = BTCJobBuilder;
     alias Job = JobBuilder.Job;
     alias JobResult = JobBuilder.JobResult;
 
