@@ -1,7 +1,7 @@
 module stratumd.btc.job;
 
 import std.string : indexOf;
-import std.algorithm : joiner;
+import std.algorithm : joiner, map;
 import std.range : chunks, enumerate;
 import std.format : format;
 import std.typecons : No;
@@ -11,74 +11,7 @@ import std.digest : toHexString, Order;
 import std.digest.sha : sha256Of;
 import std.bigint : BigInt, toHex;
 import std.exception : assumeUnique, assumeWontThrow;
-
-/**
-Dificulty1 value.
-*/
-private immutable difficulty1 = BigInt("0x00000000FFFF0000000000000000000000000000000000000000000000000000");
-//private immutable difficulty1 = BigInt("0x00000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
-
-/**
-BTC Job notification.
-*/
-struct BTCJobNotification
-{
-    string jobID;
-    string prevHash;
-    string coinb1;
-    string coinb2;
-    string[] merkleBranch;
-    string blockVersion;
-    string nbits;
-    string ntime;
-    bool cleanJobs;
-}
-
-/**
-BTC Job submit content.
-*/
-struct BTCJobSubmit
-{
-    string workerName;
-    string jobID;
-    string ntime;
-    string nonce;
-    string extranonce2;
-
-    /**
-    Construct from JobResult.
-    */
-    static BTCJobSubmit fromResult()(
-        auto scope ref const(BTCJobResult) result) nothrow pure @safe
-    {
-        BTCJobSubmit submit = {
-            workerName: result.workerName,
-            jobID: result.jobID,
-            ntime: assumeWontThrow(format("%08x", result.ntime)),
-            nonce: assumeWontThrow(format("%08x", result.nonce)),
-            extranonce2: assumeWontThrow(format("%0*x", result.extranonce2Size * 2, result.extranonce2)),
-        };
-        return submit;
-    }
-}
-
-///
-nothrow pure @safe unittest
-{
-    immutable submit = BTCJobSubmit.fromResult(
-        BTCJobResult(
-            "test-worker",
-            "test-job-id",
-            0x3456789,
-            0xABCDEF,
-            0x1234,
-            3));
-    assert(submit.workerName == "test-worker");
-    assert(submit.jobID == "test-job-id");
-    assert(submit.ntime == "03456789");
-    assert(submit.nonce == "00abcdef");
-    assert(submit.extranonce2 == "001234");
-}
+import std.json : JSONValue;
 
 /**
 BTC job request.
@@ -110,27 +43,60 @@ BTC job builder.
 */
 struct BTCJobBuilder
 {
-    string extranonce1;
-    uint extranonce2;
-    uint extranonce2Size;
-    double difficulty = 1.0;
+    alias Job = BTCJob;
+    alias JobResult = BTCJobResult;
 
-    BTCJob build()(auto scope ref const(BTCJobNotification) notify) pure @safe const
+    void receiveNotify(scope const(JSONValue)[] params)
     {
-        auto buffer = appender!(ubyte[])();
-        buffer ~= notify.coinb1.hexToBytes;
-        buffer ~= extranonce1.hexToBytes;
-
-        foreach (i; 0 .. extranonce2Size)
+        auto jobID = params[0].str;
+        if (notification_.jobID != jobID)
         {
-            immutable shift = 8 * (extranonce2Size - 1 - i);
-            buffer ~= cast(ubyte)((extranonce2 >> shift) & 0xff);
+            extranonce2_ = 0;
         }
 
-        buffer ~= notify.coinb2.hexToBytes;
+        notification_ = BTCJobNotification(
+            jobID,
+            params[1].str,
+            params[2].str,
+            params[3].str,
+            params[4].array.map!((e) => e.str).array,
+            params[5].str,
+            params[6].str,
+            params[7].str,
+            params[8].boolean);
+    }
+
+    void receiveSubscribeResponse(scope ref const(JSONValue) result)
+    {
+        updateExtranonce(result[1].str, result[2].get!int);
+    }
+
+    void receiveSetExtranonce(scope const(JSONValue)[] params)
+    {
+        updateExtranonce(params[0].str, params[1].get!int);
+    }
+
+    void receiveSetDifficulty(scope const(JSONValue)[] params) pure @safe
+    {
+        difficulty_ = params[0].get!double;
+    }
+
+    BTCJob build() pure @safe const
+    {
+        auto buffer = appender!(ubyte[])();
+        buffer ~= notification_.coinb1.hexToBytes;
+        buffer ~= extranonce1_.hexToBytes;
+
+        foreach (i; 0 .. extranonce2Size_)
+        {
+            immutable shift = 8 * (extranonce2Size_ - 1 - i);
+            buffer ~= cast(ubyte)((extranonce2_ >> shift) & 0xff);
+        }
+
+        buffer ~= notification_.coinb2.hexToBytes;
 
         auto merkleRoot = sha256Of(sha256Of(buffer[]));
-        foreach (branch; notify.merkleBranch)
+        foreach (branch; notification_.merkleBranch)
         {
             buffer.clear();
             buffer ~= merkleRoot[];
@@ -139,27 +105,30 @@ struct BTCJobBuilder
         }
 
         auto header = appender!string();
-        header ~= notify.blockVersion.hexReverse;
-        header ~= notify.prevHash;
+        header ~= notification_.blockVersion.hexReverse;
+        header ~= notification_.prevHash;
         header ~= merkleRoot.toHexString!(LetterCase.lower, Order.increasing)[];
-        header ~= notify.ntime.hexReverse;
-        header ~= notify.nbits.hexReverse;
+        header ~= notification_.ntime.hexReverse;
+        header ~= notification_.nbits.hexReverse;
         header ~= "00000000"; // nonce
         
         return BTCJob(
-            notify.jobID,
+            notification_.jobID,
             header[],
-            calculateTarget(difficulty),
-            extranonce2,
-            extranonce2Size);
+            calculateTarget(difficulty_),
+            extranonce2_,
+            extranonce2Size_);
     }
 
     /**
     Set up next job.
     */
-    void completeJob() @nogc nothrow pure @safe scope
+    void completeJob(string jobID) @nogc nothrow pure @safe scope
     {
-        ++extranonce2;
+        if (jobID == notification_.jobID)
+        {
+            ++extranonce2_;
+        }
     }
 
     /**
@@ -167,7 +136,36 @@ struct BTCJobBuilder
     */
     void cleanJob() @nogc nothrow pure @safe scope
     {
-        extranonce2 = 0;
+        extranonce2_ = 0;
+    }
+
+    @property const @nogc nothrow pure @safe scope
+    {
+        string jobID() { return notification_.jobID; }
+        bool cleanJobs() { return notification_.cleanJobs; }
+        string extranonce1() { return extranonce1_; }
+        uint extranonce2() { return extranonce2_; }
+        uint extranonce2Size() { return extranonce2Size_; }
+        double difficulty() { return difficulty_; }
+    }
+
+    static const(JSONValue)[] resultToJSONParams(scope ref const(JobResult) result)
+    {
+        return BTCJobSubmit.fromResult(result).toJSONParams;
+    }
+
+private:
+    BTCJobNotification notification_;
+    string extranonce1_;
+    uint extranonce2_;
+    uint extranonce2Size_;
+    double difficulty_ = 1.0;
+
+    void updateExtranonce(string extranonce1, uint extranonce2Size)
+    {
+        extranonce1_ = extranonce1;
+        extranonce2_ = 0;
+        extranonce2Size_ = extranonce2Size;
     }
 }
 
@@ -189,17 +187,34 @@ unittest
 
     // extranonce1: "2a010000"
     // extranonce2: "00434104"
-    auto builder = BTCJobBuilder(extranonce1, extranonce2, extranonce2Size, 1);
-    auto job = builder.build(BTCJobNotification(
-        "job-id",
-        hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81"),
-        "01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415",
-        "d879d5ef8b70cf0a33925101b64429ad7eb370da8ad0b05c9cd60922c363a1eada85bcc2843b7378e226735048786c790b30b28438d22acfade24ef047b5f865ac00000000",
-        [ tx1, tx23, ],
-        "00000001",
-        "1a44b9f2",
-        "4dd7f5c7",
-        false));
+    auto builder = BTCJobBuilder();
+    auto subscribeResponse = JSONValue();
+    subscribeResponse.array = [];
+    subscribeResponse.array ~= JSONValue("");
+    subscribeResponse.array ~= JSONValue(extranonce1);
+    subscribeResponse.array ~= JSONValue(extranonce2Size);
+    builder.receiveSubscribeResponse(subscribeResponse);
+    assert(builder.extranonce1 == extranonce1);
+    assert(builder.extranonce2Size == extranonce2Size);
+
+    builder.receiveSetDifficulty([JSONValue(1)]);
+
+    JSONValue[] notificationParams;
+    notificationParams ~= JSONValue("job-id");
+    notificationParams ~= JSONValue(hexReverse("00000000000008a3a41b85b8b29ad444def299fee21793cd8b9e567eab02cd81"));
+    notificationParams ~= JSONValue("01000000010000000000000000000000000000000000000000000000000000000000000000ffffffff0804f2b9441a022a01ffffffff01403415");
+    notificationParams ~= JSONValue("d879d5ef8b70cf0a33925101b64429ad7eb370da8ad0b05c9cd60922c363a1eada85bcc2843b7378e226735048786c790b30b28438d22acfade24ef047b5f865ac00000000");
+    notificationParams ~= JSONValue([ tx1, tx23, ]);
+    notificationParams ~= JSONValue("00000001");
+    notificationParams ~= JSONValue("1a44b9f2");
+    notificationParams ~= JSONValue("4dd7f5c7");
+    notificationParams ~= JSONValue(false);
+    builder.receiveNotify(notificationParams);
+
+    builder.extranonce2_ = extranonce2;
+    assert(builder.extranonce2 == extranonce2);
+
+    auto job = builder.build();
     assert(job.extranonce2 == extranonce2);
     assert(job.extranonce2Size == extranonce2Size);
     assert(job.header[0 .. $ - 8] == expectedHeaderAndNonce[0 .. $ - 8]);
@@ -210,6 +225,90 @@ unittest
         ~ "d879d5ef8b70cf0a33925101b64429ad7eb370da8ad0b05c9cd60922c363a1eada85bcc2843b7378e226735048786c790b30b28438d22acfade24ef047b5f865ac00000000";
     assert(sha256Of(sha256Of(coinbase.hexToBytes)).toHexString!(LetterCase.lower, Order.decreasing)
             == "51d37bdd871c9e1f4d5541be67a6ab625e32028744d7d4609d0c37747b40cd2d");
+}
+
+private:
+
+/**
+BTC Job submit content.
+*/
+struct BTCJobSubmit
+{
+    string workerName;
+    string jobID;
+    string ntime;
+    string nonce;
+    string extranonce2;
+
+    /**
+    Construct from JobResult.
+    */
+    static BTCJobSubmit fromResult()(
+        auto scope ref const(BTCJobResult) result) nothrow pure @safe
+    {
+        BTCJobSubmit submit = {
+            workerName: result.workerName,
+            jobID: result.jobID,
+            ntime: assumeWontThrow(format("%08x", result.ntime)),
+            nonce: assumeWontThrow(format("%08x", result.nonce)),
+            extranonce2: assumeWontThrow(format("%0*x", result.extranonce2Size * 2, result.extranonce2)),
+        };
+        return submit;
+    }
+
+    /**
+    Result to JSON params.
+    */
+    const(JSONValue)[] toJSONParams()
+    {
+        return [
+            JSONValue(workerName),
+            JSONValue(jobID),
+            JSONValue(extranonce2),
+            JSONValue(ntime),
+            JSONValue(nonce),
+        ];
+    }
+}
+
+///
+nothrow pure @safe unittest
+{
+    immutable submit = BTCJobSubmit.fromResult(
+        BTCJobResult(
+            "test-worker",
+            "test-job-id",
+            0x3456789,
+            0xABCDEF,
+            0x1234,
+            3));
+    assert(submit.workerName == "test-worker");
+    assert(submit.jobID == "test-job-id");
+    assert(submit.ntime == "03456789");
+    assert(submit.nonce == "00abcdef");
+    assert(submit.extranonce2 == "001234");
+}
+
+/**
+Dificulty1 value.
+*/
+immutable difficulty1 = BigInt("0x00000000FFFF0000000000000000000000000000000000000000000000000000");
+//private immutable difficulty1 = BigInt("0x00000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF");
+
+/**
+BTC Job notification.
+*/
+struct BTCJobNotification
+{
+    string jobID;
+    string prevHash;
+    string coinb1;
+    string coinb2;
+    string[] merkleBranch;
+    string blockVersion;
+    string nbits;
+    string ntime;
+    bool cleanJobs;
 }
 
 immutable(ubyte)[] hexToBytes(scope string hex) nothrow pure @safe

@@ -15,12 +15,6 @@ import stratumd.rpc_connection :
     RPCHandler,
     openRPCConnection,
     MessageID;
-import stratumd.job :
-    Job,
-    JobNotification,
-    JobResult,
-    JobSubmit,
-    JobBuilder;
 
 /**
 Stratum method.
@@ -38,8 +32,11 @@ enum StratumMethod
 
 /**
 Stratum sender.
+
+Params:
+    JobBuilder = job builder.
 */
-interface StratumSender : TCPCloser
+interface StratumSender(JobBuilder) : TCPCloser
 {
     /**
     Send authorize request.
@@ -54,7 +51,7 @@ interface StratumSender : TCPCloser
     /**
     Submit and complete job if alived.
     */
-    Nullable!MessageID submitAndCompleteJob(scope ref const(JobResult) jobResult);
+    Nullable!MessageID submitAndCompleteJob(scope ref const(JobBuilder.JobResult) jobResult);
 
     /**
     complete job.
@@ -64,49 +61,54 @@ interface StratumSender : TCPCloser
 
 /**
 Stratum handler.
+
+Params:
+    JobBuilder = job builder.
 */
-interface StratumHandler
+interface StratumHandler(JobBuilder)
 {
+    alias Sender = StratumSender!JobBuilder;
+
     /**
     Callback on job notify.
     */
-    void onNotify(scope ref const(Job) job, scope StratumSender sender);
+    void onNotify(scope ref const(JobBuilder.Job) job, scope Sender sender);
 
     /**
     Callback on error.
     */
-    void onError(scope string errorText, scope StratumSender sender);
+    void onError(scope string errorText, scope Sender sender);
 
     /**
     Callback on idle time.
     */
-    void onIdle(scope StratumSender sender);
+    void onIdle(scope Sender sender);
 
     /**
     Callback on response.
     */
-    void onResponse(MessageID id, StratumMethod method, scope StratumSender sender);
+    void onResponse(MessageID id, StratumMethod method, scope Sender sender);
 
     /**
     Callback on error response.
     */
-    void onErrorResponse(MessageID id, StratumMethod method, scope StratumSender sender);
+    void onErrorResponse(MessageID id, StratumMethod method, scope Sender sender);
 }
 
 /**
 Open Stratum connection.
 */
-void openStratumConnection(string hostname, ushort port, scope StratumHandler handler)
+void openStratumConnection(JobBuilder)(string hostname, ushort port, scope StratumHandler!JobBuilder handler)
 {
-    scope stratumStack = new StratumStack(handler);
+    scope stratumStack = new StratumStack!JobBuilder(handler);
     openRPCConnection(hostname, port, stratumStack);
 }
 
 private:
 
-final class StratumStack : RPCHandler
+final class StratumStack(JobBuilder) : RPCHandler
 {
-    this(StratumHandler handler) @nogc nothrow pure @safe scope
+    this(StratumHandler!JobBuilder handler) @nogc nothrow pure @safe scope
         in (handler)
     {
         this.handler_ = handler;
@@ -186,12 +188,11 @@ final class StratumStack : RPCHandler
 
 private:
 
-    StratumHandler handler_;
+    StratumHandler!JobBuilder handler_;
     bool[string] jobs_;
-    JobNotification currentJob_;
     JobBuilder jobBuilder_;
 
-    final class Sender : StratumSender
+    final class Sender : StratumSender!JobBuilder
     {
         this(RPCSender rpcSender) @nogc nothrow pure @safe scope
             in (rpcSender)
@@ -211,7 +212,7 @@ private:
             return sendMessage(StratumMethod.subscribe, params, rpcSender_);
         }
 
-        override Nullable!MessageID submitAndCompleteJob(scope ref const(JobResult) jobResult)
+        override Nullable!MessageID submitAndCompleteJob(scope ref const(JobBuilder.JobResult) jobResult)
         {
             if (!(jobResult.jobID in jobs_))
             {
@@ -219,7 +220,7 @@ private:
                 return typeof(return).init;
             }
 
-            auto params = resultToParams(jobResult);
+            auto params = JobBuilder.resultToJSONParams(jobResult);
             tracef("submit: %s", params);
             auto result = nullable(sendMessage(StratumMethod.submit, params, rpcSender_));
 
@@ -229,11 +230,8 @@ private:
 
         override void completeJob(string jobID)
         {
-            if (currentJob_.jobID == jobID)
-            {
-                jobBuilder_.completeJob;
-                notifyCurrentJob(this);
-            }
+            jobBuilder_.completeJob(jobID);
+            notifyCurrentJob(this);
         }
 
         override void close()
@@ -252,18 +250,13 @@ private:
 
     void onReceiveNotify(scope const(JSONValue)[] params, scope RPCSender sender)
     {
-        auto notification = parseNotification(params);
-        if (notification.cleanJobs)
+        jobBuilder_.receiveNotify(params);
+
+        if (jobBuilder_.cleanJobs)
         {
             jobs_.clear();
         }
-        jobs_[notification.jobID] = true;
-
-        if (currentJob_.jobID != notification.jobID)
-        {
-            jobBuilder_.cleanJob();
-        }
-        currentJob_ = notification;
+        jobs_[jobBuilder_.jobID] = true;
 
         scope stratumSender = new Sender(sender);
         notifyCurrentJob(stratumSender);
@@ -277,59 +270,24 @@ private:
 
     void onReceiveSubscribeResponse(scope ref const(JSONValue) result)
     {
-        updateExtranonce(result[1].str, result[2].get!uint);
+        jobBuilder_.receiveSubscribeResponse(result);
     }
 
     void onReceiveSetExtranonce(scope const(JSONValue)[] params)
     {
-        updateExtranonce(params[0].str, params[1].get!uint);
+        jobBuilder_.receiveSetExtranonce(params);
     }
 
     void onReceiveSetDifficulty(scope const(JSONValue)[] params)
     {
-        jobBuilder_.difficulty = params[0].get!double;
-        tracef("set difficulty: %s", jobBuilder_.difficulty);
+        jobBuilder_.receiveSetDifficulty(params);
     }
 
-    void updateExtranonce(string extranonce1, uint extranonce2Size)
+    void notifyCurrentJob(scope StratumSender!JobBuilder sender)
     {
-        tracef("update extra nonce: %s, %s", extranonce1, extranonce2Size);
-        jobBuilder_.extranonce1 = extranonce1;
-        jobBuilder_.extranonce2 = 0;
-        jobBuilder_.extranonce2Size = extranonce2Size;
-    }
-
-    void notifyCurrentJob(scope StratumSender sender)
-    {
-        immutable job = jobBuilder_.build(currentJob_);
+        immutable job = jobBuilder_.build();
         tracef("notify current job: %s", job);
         handler_.onNotify(job, sender);
-    }
-
-    static JobNotification parseNotification(scope const(JSONValue)[] params)
-    {
-        return JobNotification(
-            params[0].str,
-            params[1].str,
-            params[2].str,
-            params[3].str,
-            params[4].array.map!((e) => e.str).array,
-            params[5].str,
-            params[6].str,
-            params[7].str,
-            params[8].boolean);
-    }
-
-    static const(JSONValue)[] resultToParams(return scope ref const(JobResult) result)
-    {
-        auto jobSubmit = JobSubmit.fromResult(result);
-        return [
-            JSONValue(jobSubmit.workerName),
-            JSONValue(jobSubmit.jobID),
-            JSONValue(jobSubmit.extranonce2),
-            JSONValue(jobSubmit.ntime),
-            JSONValue(jobSubmit.nonce),
-        ];
     }
 }
 

@@ -19,7 +19,7 @@ import stratumd.stratum_connection :
     StratumSender,
     StratumHandler,
     StratumMethod;
-import stratumd.job : Job, JobResult;
+import stratumd.btc.job : BTCJobBuilder;
 
 /**
 Stratum related error.
@@ -34,6 +34,10 @@ Stratum client.
 */
 final class StratumClient
 {
+    alias JobBuilder = BTCJobBuilder;
+    alias Job = JobBuilder.Job;
+    alias JobResult = JobBuilder.JobResult;
+
     /**
     Close if connected.
     */
@@ -122,6 +126,8 @@ private:
     static immutable Duration requestWaitTimeout = 10.msecs;
     static immutable Duration responseTimeout = 60.seconds;
 
+    alias Sender = StratumSender!JobBuilder;
+
     struct Closing {}
     struct Connected {}
 
@@ -149,20 +155,20 @@ private:
 
     Tid connectionTid_;
 
-    static class Handler : StratumHandler
+    static class Handler : StratumHandler!JobBuilder
     {
-        override void onNotify(scope ref const(Job) job, scope StratumSender sender)
+        override void onNotify(scope ref const(Job) job, scope Sender sender)
         {
             ownerTid.send(JobNotify(job));
         }
 
-        override void onError(scope string errorText, scope StratumSender sender)
+        override void onError(scope string errorText, scope Sender sender)
         {
             errorf("TCP error: %s", errorText);
             sender.close();
         }
 
-        override void onIdle(scope StratumSender sender)
+        override void onIdle(scope Sender sender)
         {
             if (!connected_)
             {
@@ -173,13 +179,13 @@ private:
             while (waitRequest(sender)) {}
         }
 
-        override void onResponse(MessageID id, StratumMethod method, scope StratumSender sender)
+        override void onResponse(MessageID id, StratumMethod method, scope Sender sender)
         {
             tracef("success: %s %s", id, method);
             translateResponse(method, true, sender);
         }
 
-        override void onErrorResponse(MessageID id, StratumMethod method, scope StratumSender sender)
+        override void onErrorResponse(MessageID id, StratumMethod method, scope Sender sender)
         {
             errorf("error: %s %s", id, method);
             translateResponse(method, false, sender);
@@ -188,7 +194,7 @@ private:
     private:
         bool connected_;
 
-        void translateResponse(StratumMethod method, bool result, scope StratumSender sender) scope
+        void translateResponse(StratumMethod method, bool result, scope Sender sender) scope
         {
             switch (method)
             {
@@ -206,7 +212,7 @@ private:
             }
         }
 
-        void sendAndCheck(M)(M message, scope StratumSender sender) scope
+        void sendAndCheck(M)(M message, scope Sender sender) scope
         {
             try
             {
@@ -219,7 +225,7 @@ private:
             }
         }
 
-        bool waitRequest(scope StratumSender sender)
+        bool waitRequest(scope Sender sender)
         {
             return receiveTimeout(
                 requestWaitTimeout,
