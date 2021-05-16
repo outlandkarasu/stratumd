@@ -121,9 +121,21 @@ struct ETHJobBuilder
             jobID_,
             header_,
             seed_,
-            (ubyte[32]).init,
+            calculateTarget(difficulty_),
             extranonce_,
             nonceBytes_);
+    }
+
+    ///
+    pure @safe unittest
+    {
+        ETHJobBuilder builder;
+
+        auto subscribeResponse = JSONValue([
+            JSONValue(),
+            JSONValue("123456"),
+        ]);
+        builder.receiveSubscribeResponse(subscribeResponse);
     }
 
     /**
@@ -206,13 +218,13 @@ ubyte[32] calculateTarget(double difficulty) nothrow pure @safe
     result *= scale;
     result /= cast(ulong)(difficulty * scale);
 
-    ubyte[32] bytes;
+    typeof(return) bytes;
     foreach (i; 0 .. result.ulongLength)
     {
         immutable w = result.getDigit!ulong(i);
         foreach (j; 0 .. ulong.sizeof)
         {
-            bytes[i * ulong.sizeof + j] = cast(ubyte)((w >> (j * 8)) & 0xff);
+            bytes[(bytes.length - 1) - (i * ulong.sizeof + j)] = cast(ubyte)((w >> (j * 8)) & 0xff);
         }
     }
     return bytes;
@@ -223,6 +235,6 @@ ubyte[32] calculateTarget(double difficulty) nothrow pure @safe
 {
     import std.conv : hexString;
 
-    assert(calculateTarget(2.0)[] == hexString!"0000000000000000000000000000000000000000000000000000000000000080");
+    assert(calculateTarget(2.0)[] == hexString!"8000000000000000000000000000000000000000000000000000000000000000");
 }
 
