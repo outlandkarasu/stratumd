@@ -3,6 +3,7 @@ module stratumd.eth.job;
 import std.ascii : LetterCase;
 import std.algorithm : map;
 import std.array : appender, array;
+import std.bigint : BigInt;
 import std.digest : toHexString, Order;
 import std.format : format;
 import std.exception : assumeWontThrow;
@@ -189,5 +190,39 @@ private:
         extranonce_ = n;
         nonceBytes_ = cast(uint)(ulong.sizeof - bytes.length);
     }
+}
+
+private:
+
+immutable difficulty1 = BigInt(2) ^^ 256;
+
+/**
+Calculate target bytes.
+*/
+ubyte[32] calculateTarget(double difficulty) nothrow pure @safe
+{
+    enum ulong scale = 10 ^^ 16;
+    BigInt result = difficulty1;
+    result *= scale;
+    result /= cast(ulong)(difficulty * scale);
+
+    ubyte[32] bytes;
+    foreach (i; 0 .. result.ulongLength)
+    {
+        immutable w = result.getDigit!ulong(i);
+        foreach (j; 0 .. ulong.sizeof)
+        {
+            bytes[i * ulong.sizeof + j] = cast(ubyte)((w >> (j * 8)) & 0xff);
+        }
+    }
+    return bytes;
+}
+
+///
+@safe unittest
+{
+    import std.conv : hexString;
+
+    assert(calculateTarget(2.0)[] == hexString!"0000000000000000000000000000000000000000000000000000000000000080");
 }
 
