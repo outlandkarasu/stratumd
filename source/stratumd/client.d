@@ -86,7 +86,18 @@ final class StratumClient(JobBuilder)
     Nullable!Job waitNewJob()
     {
         typeof(return) job;
-        receiveTimeout(responseTimeout, (JobNotify notify) { job = notify.job; });
+
+        void receiveJob(JobNotify notify) @nogc nothrow pure @safe
+        {
+            job = notify.job;
+        }
+
+        // receive last notified job.
+        if (receiveTimeout(responseTimeout, &receiveJob))
+        {
+            while(receiveTimeout(jobWaitTimeout, &receiveJob)) {}
+        }
+
         return job;
     }
 
@@ -123,6 +134,7 @@ private:
 
     static immutable Duration requestWaitTimeout = 10.msecs;
     static immutable Duration responseTimeout = 60.seconds;
+    static immutable Duration jobWaitTimeout = 10.msecs;
 
     alias Sender = StratumSender!JobBuilder;
 

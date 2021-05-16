@@ -196,11 +196,12 @@ unittest
     // extranonce1: "2a010000"
     // extranonce2: "00434104"
     auto builder = BTCJobBuilder();
-    builder.receiveSubscribeResponse(JSONValue([
+    auto subscribeResponse = JSONValue([
         JSONValue(""),
         JSONValue(extranonce1),
         JSONValue(extranonce2Size),
-    ]));
+    ]);
+    builder.receiveSubscribeResponse(subscribeResponse);
     assert(builder.extranonce1 == extranonce1);
     assert(builder.extranonce2Size == extranonce2Size);
 
