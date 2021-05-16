@@ -129,6 +129,8 @@ struct ETHJobBuilder
     ///
     pure @safe unittest
     {
+        import std.conv : hexString;
+
         ETHJobBuilder builder;
 
         auto subscribeResponse = JSONValue([
@@ -136,6 +138,22 @@ struct ETHJobBuilder
             JSONValue("123456"),
         ]);
         builder.receiveSubscribeResponse(subscribeResponse);
+        builder.receiveSetDifficulty([JSONValue(4.0)]);
+
+        builder.receiveNotify([
+            JSONValue("test-job-id"),
+            JSONValue("012345678"),
+            JSONValue("abcdefabc"),
+            JSONValue(true),
+        ]);
+        assert(builder.jobID == "test-job-id");
+
+        immutable job = builder.build();
+        assert(job.extranonce == 0x1234560000000000);
+        assert(job.nonceBytes == 5);
+        assert(job.target[] == hexString!"4000000000000000000000000000000000000000000000000000000000000000");
+        assert(job.seed == "012345678");
+        assert(job.header == "abcdefabc");
     }
 
     /**
